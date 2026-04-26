@@ -1,99 +1,108 @@
 import streamlit as st
 import plotly.graph_objects as go
-import plotly.express as px
+import pandas as pd
 import math
 
-st.set_page_config(page_title="PSPCL VD Calculator", page_icon="⚡", layout="centered")
+st.set_page_config(page_title="PSPCL VD Calculator", page_icon="⚡", layout="wide")
 
-# Modern Custom Styling
 st.markdown("""
 <style>
-    .main {background: linear-gradient(135deg, #0f172a 0%, #1e40af 100%);}
+    .main {background: linear-gradient(135deg, #0f172a, #1e40af);}
     h1 {color: #60a5fa; text-align: center;}
-    .footer {text-align: center; margin-top: 60px; color: #94a3b8;}
-    .made-with {font-size: 1.4rem; margin: 25px 0 15px 0;}
+    .footer {text-align: center; margin-top: 40px; color: #94a3b8;}
+    .made-with {font-size: 1.45rem; margin: 20px 0;}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ PSPCL 11kV Voltage Drop Calculator")
-st.markdown("**Accurate Calculation with Reactance + Graphs + AI Insight**")
+st.title("⚡ PSPCL Voltage Drop Calculator")
+st.subheader("HT 11kV + LT Cables | Branch-wise | Automated Sketch")
 
-# Input Section
-col1, col2 = st.columns(2)
+tab1, tab2 = st.tabs(["11kV HT Calculation", "LT Cable Calculation"])
 
-with col1:
-    feeder_name = st.text_input("Feeder Name", placeholder="e.g. Ludhiana Industrial Feeder")
-    demand_kva = st.number_input("Maximum Demand (kVA)", min_value=10.0, value=500.0, step=10.0)
-    length_km = st.number_input("Feeder Length (km)", min_value=0.1, value=5.0, step=0.1)
+# ====================== HT 11kV TAB ======================
+with tab1:
+    st.markdown("### 11kV Feeder Voltage Drop (Branch-wise)")
+    
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        feeder_name = st.text_input("Feeder Name", "Diamond Estate Feeder")
+    
+    # Predefined Conductor Data from your Excel
+    ht_conductors = {
+        "ACSR Squirrel": {"R": 1.5388, "X": 0.3915},
+        "ACSR Weasel": {"R": 1.0209, "X": 0.382},
+        "ACSR Rabbit": {"R": 0.6103, "X": 0.372},
+        "ACSR Raccoon": {"R": 0.3712, "X": 0.30},
+        "ACSR Dog": {"R": 0.2792, "X": 0.29},
+        "XLPE 300 Sqmm": {"R": 0.126, "X": 0.10},
+        "XLPE 400 Sqmm": {"R": 0.0997, "X": 0.0977}
+    }
 
-with col2:
-    pf = st.slider("Power Factor", 0.70, 0.99, 0.85, 0.01)
-    conductor = st.selectbox("Conductor Type", ["Weasel", "Rabbit", "Raccoon", "Dog"])
+    branches = st.number_input("Number of Sections (Branches)", min_value=1, max_value=15, value=8)
 
-# Conductor Data (R + X in Ω/km)
-conductor_data = {
-    "Weasel":  {"R": 0.9289, "X": 0.35},
-    "Rabbit":  {"R": 0.5524, "X": 0.32},
-    "Raccoon": {"R": 0.3712, "X": 0.30},
-    "Dog":     {"R": 0.2792, "X": 0.29}
-}
+    data = []
+    total_load = 0.0
 
-data = conductor_data[conductor]
-R, X = data["R"], data["X"]
+    for i in range(branches):
+        st.markdown(f"**Section {chr(65+i)}-{chr(66+i)}**")
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            conductor = st.selectbox(f"Conductor", list(ht_conductors.keys()), key=f"cond_{i}")
+        with c2:
+            length = st.number_input(f"Length (km)", min_value=0.01, value=0.5, step=0.01, key=f"len_{i}")
+        with c3:
+            section_load = st.number_input(f"Section Load (kVA)", min_value=0.0, value=200.0, step=10.0, key=f"load_{i}")
+        with c4:
+            dt_size = st.selectbox("DT Size", ["None", "10kVA", "25kVA", "63kVA", "100kVA", "200kVA", "300kVA", "500kVA", "800kVA", "1000kVA"], key=f"dt_{i}")
 
-# Calculation
-current = (demand_kva * 1000) / (math.sqrt(3) * 11000)
-vd_volts = math.sqrt(3) * current * length_km * (R * pf + X * math.sin(math.acos(pf)))
-vd_percent = (vd_volts / 11000) * 100
+        r = ht_conductors[conductor]["R"]
+        x = ht_conductors[conductor]["X"]
+        pf = 0.85
+        sin_phi = 0.52
 
-# Status
-if vd_percent <= 5.0:
-    status_color = "green"
-    status = "✅ Excellent - Well within PSPCL Limit"
-elif vd_percent <= 9.0:
-    status_color = "orange"
-    status = "⚠️ Acceptable but High"
-else:
-    status_color = "red"
-    status = "❌ High Voltage Drop - Feeder Augmentation Recommended"
+        # Cumulative load from this point onwards
+        cum_load = total_load + section_load
+        total_load += section_load
 
-# Results
-st.success(f"**Voltage Drop = {vd_percent:.2f} %**")
-st.markdown(f"<h3 style='color:{status_color}; text-align:center;'>{status}</h3>", unsafe_allow_html=True)
+        current = (cum_load * 1000) / (math.sqrt(3) * 11000)
+        vd_percent = (math.sqrt(3) * current * length * (r * pf + x * sin_phi) * 100) / 11000
 
-# Metrics
-c1, c2, c3 = st.columns(3)
-c1.metric("Current", f"{current:.1f} A")
-c2.metric("Resistance", f"{R:.4f} Ω/km")
-c3.metric("Reactance", f"{X:.2f} Ω/km")
+        data.append({
+            "Section": f"{chr(65+i)}-{chr(66+i)}",
+            "Conductor": conductor,
+            "Length_km": length,
+            "Section_Load_kVA": section_load,
+            "Cumulative_kVA": cum_load,
+            "VD_%": round(vd_percent, 3)
+        })
 
-# Graphs
-st.subheader("📊 Voltage Drop Analysis")
+    df = pd.DataFrame(data)
+    st.dataframe(df, use_container_width=True)
 
-fig1 = go.Figure(go.Bar(x=["Voltage Drop"], y=[vd_percent], marker_color=status_color))
-fig1.update_layout(yaxis_range=[0, max(12, vd_percent + 3)], height=350)
-st.plotly_chart(fig1, use_container_width=True)
+    total_vd = df["VD_%"].sum()
+    st.success(f"**Total Voltage Drop = {total_vd:.2f} %**")
 
-fig2 = px.pie(values=[vd_percent, 100 - vd_percent], names=["Drop", "Remaining Voltage"],
-              title="Voltage Drop Distribution", color_discrete_sequence=[status_color, "#64748b"])
-st.plotly_chart(fig2, use_container_width=True)
+    if total_vd <= 5:
+        st.success("✅ Within Limit")
+    elif total_vd <= 9:
+        st.warning("⚠️ Acceptable but High")
+    else:
+        st.error("❌ Exceeds Limit - Augmentation Recommended")
 
-# Rough Sketch
-st.subheader("📍 Rough Feeder Sketch")
-st.markdown(f"""
-Substation (11 kV) ───────────────────────────────► Consumer End
-{conductor} Conductor   ({length_km} km)
-Voltage at Consumer End ≈ {11000 - vd_volts:.0f} V
-text""")
+    # Automated Rough Sketch
+    st.subheader("📍 Automated Single Line Sketch")
+    sketch = "Substation → "
+    for row in data:
+        sketch += f"[{row['Section']} {row['Conductor'][:8]} ({row['Length_km']}km) "
+        if row['Section_Load_kVA'] > 0:
+            sketch += f"{int(row['Section_Load_kVA'])}kVA] → "
+    sketch += "Tail End"
+    st.code(sketch)
 
-# AI Insight
-st.subheader("🤖 AI Recommendation")
-if vd_percent > 9:
-    st.error("This level of voltage drop usually causes complaints. PSPCL may ask for feeder augmentation or new substation.")
-elif vd_percent > 5:
-    st.warning("Voltage is acceptable but on the higher side. Plan for future load growth.")
-else:
-    st.success("Voltage profile is good. No immediate action needed.")
+# ====================== LT TAB ======================
+with tab2:
+    st.markdown("### LT Cable Voltage Drop")
+    st.info("LT calculation coming in next update (using your LT sheet data). Currently focused on HT.")
 
 # Footer
 st.markdown("---")
@@ -103,10 +112,7 @@ st.markdown("""
         Made with ❤️ by <strong>@iamanujnarang</strong>
     </div>
     <p>
-        <a href="https://facebook.com/iamanujnarang" target="_blank">Facebook</a> |
-        <a href="https://instagram.com/iamanujnarang" target="_blank">Instagram</a> |
-        <a href="https://x.com/iamanujnarang" target="_blank">X</a> |
-        <a href="https://linkedin.com/in/iamanujnarang" target="_blank">LinkedIn</a>
+        Facebook | Instagram | X | LinkedIn → <strong>iamanujnarang</strong>
     </p>
     <p>
         Powered by <a href="https://beeclue.com/" target="_blank" style="color:#60a5fa;">Beeclue Tech</a>
