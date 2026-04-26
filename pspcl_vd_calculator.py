@@ -1,110 +1,126 @@
 import streamlit as st
-import plotly.graph_objects as go
 import pandas as pd
 import math
 
 st.set_page_config(page_title="PSPCL VD Calculator", page_icon="⚡", layout="wide")
 
+# ------------------ STYLE ------------------
 st.markdown("""
 <style>
-    .main {background: linear-gradient(135deg, #0f172a, #1e40af);}
-    h1 {color: #60a5fa; text-align: center;}
-    .footer {text-align: center; margin-top: 40px; color: #94a3b8;}
-    .made-with {font-size: 1.45rem; margin: 20px 0;}
+.main {background: linear-gradient(135deg, #0f172a, #1e40af);}
+h1 {color: #60a5fa; text-align: center;}
+.footer {text-align: center; margin-top: 50px; color: #94a3b8;}
+.made-with {font-size: 1.5rem; margin: 25px 0;}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("⚡ PSPCL Voltage Drop Calculator")
-st.subheader("HT 11kV + LT Cables | Branch-wise | Automated Sketch")
+st.title("⚡ PSPCL 11kV Voltage Drop Calculator")
 
-tab1, tab2 = st.tabs(["11kV HT Calculation", "LT Cable Calculation"])
+# ------------------ INPUT ------------------
+col1, col2 = st.columns([3,1])
 
-# ====================== HT 11kV TAB ======================
-with tab1:
-    st.markdown("### 11kV Feeder Voltage Drop (Branch-wise)")
+with col1:
+    feeder_name = st.text_input("Feeder Name", "11kV Feeder")
+
+with col2:
+    md_kva = st.number_input("Maximum Demand (kVA)", value=1000.0, step=50.0)
+
+# ------------------ CONDUCTOR DATA ------------------
+conductors = {
+    "ACSR Weasel": {"R": 1.0209, "X": 0.382},
+    "ACSR Rabbit": {"R": 0.6103, "X": 0.372},
+    "ACSR Raccoon": {"R": 0.3712, "X": 0.30},
+    "ACSR Dog": {"R": 0.2792, "X": 0.29},
+    "XLPE 300 Sqmm": {"R": 0.126, "X": 0.10},
+    "XLPE 400 Sqmm": {"R": 0.0997, "X": 0.0977}
+}
+
+# ------------------ BRANCH INPUT ------------------
+num = st.number_input("Number of Sections", min_value=1, max_value=20, value=1)
+
+st.subheader("Section-wise Input")
+
+sections = []
+total_load = 0
+
+for i in range(num):
+    st.markdown(f"### Section {chr(65+i)} → {chr(66+i)}")
     
-    col1, col2 = st.columns([2, 1])
-    with col1:
-        feeder_name = st.text_input("Feeder Name", "Diamond Estate Feeder")
-    
-    # Predefined Conductor Data from your Excel
-    ht_conductors = {
-        "ACSR Squirrel": {"R": 1.5388, "X": 0.3915},
-        "ACSR Weasel": {"R": 1.0209, "X": 0.382},
-        "ACSR Rabbit": {"R": 0.6103, "X": 0.372},
-        "ACSR Raccoon": {"R": 0.3712, "X": 0.30},
-        "ACSR Dog": {"R": 0.2792, "X": 0.29},
-        "XLPE 300 Sqmm": {"R": 0.126, "X": 0.10},
-        "XLPE 400 Sqmm": {"R": 0.0997, "X": 0.0977}
-    }
+    c1, c2, c3 = st.columns(3)
 
-    branches = st.number_input("Number of Sections (Branches)", min_value=1, max_value=15, value=8)
+    with c1:
+        cond = st.selectbox("Conductor", list(conductors.keys()), key=i)
 
-    data = []
-    total_load = 0.0
+    with c2:
+        length = st.number_input("Length (km)", value=0.5, step=0.1, key=f"l{i}")
 
-    for i in range(branches):
-        st.markdown(f"**Section {chr(65+i)}-{chr(66+i)}**")
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            conductor = st.selectbox(f"Conductor", list(ht_conductors.keys()), key=f"cond_{i}")
-        with c2:
-            length = st.number_input(f"Length (km)", min_value=0.01, value=0.5, step=0.01, key=f"len_{i}")
-        with c3:
-            section_load = st.number_input(f"Section Load (kVA)", min_value=0.0, value=200.0, step=10.0, key=f"load_{i}")
-        with c4:
-            dt_size = st.selectbox("DT Size", ["None", "10kVA", "25kVA", "63kVA", "100kVA", "200kVA", "300kVA", "500kVA", "800kVA", "1000kVA"], key=f"dt_{i}")
+    with c3:
+        load = st.number_input("Load at this point (kVA)", value=100.0, step=10.0, key=f"ld{i}")
 
-        r = ht_conductors[conductor]["R"]
-        x = ht_conductors[conductor]["X"]
-        pf = 0.85
-        sin_phi = 0.52
+    sections.append({
+        "cond": cond,
+        "length": length,
+        "load": load
+    })
 
-        # Cumulative load from this point onwards
-        cum_load = total_load + section_load
-        total_load += section_load
+# ------------------ CALCULATION ------------------
+pf = 0.85
+sin_phi = math.sin(math.acos(pf))
 
-        current = (cum_load * 1000) / (math.sqrt(3) * 11000)
-        vd_percent = (math.sqrt(3) * current * length * (r * pf + x * sin_phi) * 100) / 11000
+remaining_load = md_kva
+data = []
+total_vd = 0
 
-        data.append({
-            "Section": f"{chr(65+i)}-{chr(66+i)}",
-            "Conductor": conductor,
-            "Length_km": length,
-            "Section_Load_kVA": section_load,
-            "Cumulative_kVA": cum_load,
-            "VD_%": round(vd_percent, 3)
-        })
+for i, sec in enumerate(sections):
 
-    df = pd.DataFrame(data)
-    st.dataframe(df, use_container_width=True)
+    r = conductors[sec["cond"]]["R"]
+    x = conductors[sec["cond"]]["X"]
 
-    total_vd = df["VD_%"].sum()
-    st.success(f"**Total Voltage Drop = {total_vd:.2f} %**")
+    current = (remaining_load * 1000) / (math.sqrt(3) * 11000)
 
-    if total_vd <= 5:
-        st.success("✅ Within Limit")
-    elif total_vd <= 9:
-        st.warning("⚠️ Acceptable but High")
-    else:
-        st.error("❌ Exceeds Limit - Augmentation Recommended")
+    vd = (math.sqrt(3) * current * sec["length"] * (r * pf + x * sin_phi) * 100) / 11000
 
-    # Automated Rough Sketch
-    st.subheader("📍 Automated Single Line Sketch")
-    sketch = "Substation → "
-    for row in data:
-        sketch += f"[{row['Section']} {row['Conductor'][:8]} ({row['Length_km']}km) "
-        if row['Section_Load_kVA'] > 0:
-            sketch += f"{int(row['Section_Load_kVA'])}kVA] → "
-    sketch += "Tail End"
-    st.code(sketch)
+    total_vd += vd
 
-# ====================== LT TAB ======================
-with tab2:
-    st.markdown("### LT Cable Voltage Drop")
-    st.info("LT calculation coming in next update (using your LT sheet data). Currently focused on HT.")
+    data.append({
+        "Section": f"{chr(65+i)}-{chr(66+i)}",
+        "Conductor": sec["cond"],
+        "Length (km)": sec["length"],
+        "Load Flow (kVA)": round(remaining_load,2),
+        "R": r,
+        "X": x,
+        "Current (A)": round(current,2),
+        "VD %": round(vd,3),
+        "Formula Used": f"√3×{round(current,1)}×{sec['length']}×({r}×0.85 + {x}×{round(sin_phi,2)})"
+    })
 
-# Footer
+    # Reduce load for next branch
+    remaining_load -= sec["load"]
+
+# ------------------ OUTPUT ------------------
+df = pd.DataFrame(data)
+st.dataframe(df, use_container_width=True)
+
+st.success(f"Total Voltage Drop = {total_vd:.2f} %")
+
+if total_vd <= 5:
+    st.success("✅ Within Limit")
+elif total_vd <= 9:
+    st.warning("⚠️ Acceptable")
+else:
+    st.error("❌ Exceeds Limit")
+
+# ------------------ SKETCH ------------------
+st.subheader("📍 Feeder Sketch")
+
+sketch = "Substation (11kV)"
+for i, row in df.iterrows():
+    sketch += f" → [{row['Section']} | {row['Load Flow (kVA)']} kVA]"
+sketch += " → End"
+
+st.code(sketch)
+
+# ------------------ FOOTER ------------------
 st.markdown("---")
 st.markdown("""
 <div class="footer">
@@ -112,10 +128,13 @@ st.markdown("""
         Made with ❤️ by <strong>@iamanujnarang</strong>
     </div>
     <p>
-        Facebook | Instagram | X | LinkedIn → <strong>iamanujnarang</strong>
+        <a href="https://facebook.com/iamanujnarang" target="_blank">Facebook</a> |
+        <a href="https://instagram.com/iamanujnarang" target="_blank">Instagram</a> |
+        <a href="https://x.com/iamanujnarang" target="_blank">X</a> |
+        <a href="https://linkedin.com/in/iamanujnarang" target="_blank">LinkedIn</a>
     </p>
     <p>
-        Powered by <a href="https://beeclue.com/" target="_blank" style="color:#60a5fa;">Beeclue Tech</a>
+        Powered by <a href="https://beeclue.com/" target="_blank">Beeclue Tech</a>
     </p>
 </div>
 """, unsafe_allow_html=True)
