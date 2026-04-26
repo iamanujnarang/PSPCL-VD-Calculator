@@ -97,3 +97,38 @@ st.plotly_chart(fig2, use_container_width=True)
 # Rough Feeder Sketch
 st.subheader("📍 Rough Feeder Sketch")
 st.markdown(f"""
+Substation (11kV) ───────────────────────────────► Consumer End
+{conductor} Conductor   ({length_km} km)
+⚡ Source Voltage: 11,000 V
+📉 Voltage at End : {11000 - vd_volts:.0f} V   ({vd_percent:.1f}% Drop)
+""")
+
+# AI Insight
+st.subheader("🤖 AI Insight & Recommendation")
+if vd_percent > 9:
+    st.error("This feeder may cause low voltage complaints. PSPCL usually recommends augmentation if drop >9%.")
+elif vd_percent > 5:
+    st.warning("Voltage is acceptable but on the higher side. Consider load management or future augmentation.")
+else:
+    st.success("Voltage profile is good. No immediate action required.")
+
+st.info(f"**Tip:** For more accurate results in official submissions, use PSPCL's official tool along with this calculator.")
+
+# Footer
+st.markdown("---")
+st.markdown("""
+<div class="footer">
+    <div class="made-with">
+        Made with ❤️ by <strong>@iamanujnarang</strong>
+    </div>
+    <p>
+        <a href="https://facebook.com/iamanujnarang" target="_blank">Facebook</a> |
+        <a href="https://instagram.com/iamanujnarang" target="_blank">Instagram</a> |
+        <a href="https://x.com/iamanujnarang" target="_blank">X (Twitter)</a> |
+        <a href="https://linkedin.com/in/iamanujnarang" target="_blank">LinkedIn</a>
+    </p>
+    <p>
+        Powered by <a href="https://beeclue.com/" target="_blank" style="color:#60a5fa;">Beeclue Tech</a>
+    </p>
+</div>
+""", unsafe_allow_html=True)
