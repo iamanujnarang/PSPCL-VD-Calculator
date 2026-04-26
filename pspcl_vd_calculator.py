@@ -1,122 +1,115 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import streamlit as st
+import plotly.graph_objects as go
+import plotly.express as px
 import math
 
-def calculate_vd():
-    try:
-        demand = float(demand_var.get())
-        length = float(length_var.get())
-        pf = float(pf_var.get())
-        cond = conductor_var.get()
+st.set_page_config(page_title="PSPCL VD Calculator", page_icon="⚡", layout="centered")
 
-        # Conductor R and X values
-        data = {
-            "Weasel":  {"R": 0.9289, "X": 0.35},
-            "Rabbit":  {"R": 0.5524, "X": 0.32},
-            "Raccoon": {"R": 0.3712, "X": 0.30},
-            "Dog":     {"R": 0.2792, "X": 0.29}
-        }
-        r = data[cond]["R"]
-        x = data[cond]["X"]
+# Modern Custom Styling
+st.markdown("""
+<style>
+    .main {background: linear-gradient(135deg, #0f172a 0%, #1e40af 100%);}
+    h1 {color: #60a5fa; text-align: center;}
+    .footer {text-align: center; margin-top: 60px; color: #94a3b8;}
+    .made-with {font-size: 1.4rem; margin: 25px 0 15px 0;}
+</style>
+""", unsafe_allow_html=True)
 
-        current = (demand * 1000) / (math.sqrt(3) * 11000)
-        vd_volts = math.sqrt(3) * current * length * (r * pf + x * math.sin(math.acos(pf)))
-        vd_percent = (vd_volts / 11000) * 100
+st.title("⚡ PSPCL 11kV Voltage Drop Calculator")
+st.markdown("**Accurate Calculation with Reactance + Graphs + AI Insight**")
 
-        result_text.set(f"Voltage Drop = {vd_percent:.2f} %")
+# Input Section
+col1, col2 = st.columns(2)
 
-        if vd_percent <= 5:
-            status_text.set("✅ Excellent - Within Limit")
-            status_label.config(foreground="green")
-        elif vd_percent <= 9:
-            status_text.set("⚠️ Acceptable but High")
-            status_label.config(foreground="orange")
-        else:
-            status_text.set("❌ High Drop - Augmentation Recommended")
-            status_label.config(foreground="red")
+with col1:
+    feeder_name = st.text_input("Feeder Name", placeholder="e.g. Ludhiana Industrial Feeder")
+    demand_kva = st.number_input("Maximum Demand (kVA)", min_value=10.0, value=500.0, step=10.0)
+    length_km = st.number_input("Feeder Length (km)", min_value=0.1, value=5.0, step=0.1)
 
-        # Update Graph
-        ax.clear()
-        ax.bar(["Voltage Drop"], [vd_percent], color='royalblue')
-        ax.set_ylabel("Voltage Drop (%)")
-        ax.set_title("Voltage Drop Analysis")
-        ax.set_ylim(0, max(12, vd_percent + 3))
-        canvas.draw()
+with col2:
+    pf = st.slider("Power Factor", 0.70, 0.99, 0.85, 0.01)
+    conductor = st.selectbox("Conductor Type", ["Weasel", "Rabbit", "Raccoon", "Dog"])
 
-    except Exception as e:
-        messagebox.showerror("Input Error", "Please enter valid numbers!")
+# Conductor Data (R + X in Ω/km)
+conductor_data = {
+    "Weasel":  {"R": 0.9289, "X": 0.35},
+    "Rabbit":  {"R": 0.5524, "X": 0.32},
+    "Raccoon": {"R": 0.3712, "X": 0.30},
+    "Dog":     {"R": 0.2792, "X": 0.29}
+}
 
-# ============== GUI Setup ==============
-root = tk.Tk()
-root.title("PSPCL 11kV Voltage Drop Calculator")
-root.geometry("900x720")
-root.configure(bg="#0f172a")
+data = conductor_data[conductor]
+R, X = data["R"], data["X"]
 
-# Title
-tk.Label(root, text="⚡ PSPCL 11kV Voltage Drop Calculator", font=("Arial", 20, "bold"), 
-         bg="#0f172a", fg="#60a5fa").pack(pady=15)
+# Calculation
+current = (demand_kva * 1000) / (math.sqrt(3) * 11000)
+vd_volts = math.sqrt(3) * current * length_km * (R * pf + X * math.sin(math.acos(pf)))
+vd_percent = (vd_volts / 11000) * 100
 
-# Input Frame
-frame = ttk.Frame(root, padding=20)
-frame.pack(fill="x", padx=30)
+# Status
+if vd_percent <= 5.0:
+    status_color = "green"
+    status = "✅ Excellent - Well within PSPCL Limit"
+elif vd_percent <= 9.0:
+    status_color = "orange"
+    status = "⚠️ Acceptable but High"
+else:
+    status_color = "red"
+    status = "❌ High Voltage Drop - Feeder Augmentation Recommended"
 
-ttk.Label(frame, text="Feeder Name:").grid(row=0, column=0, sticky="w", pady=8)
-feeder_var = tk.StringVar()
-ttk.Entry(frame, textvariable=feeder_var, width=30).grid(row=0, column=1, pady=8)
+# Results
+st.success(f"**Voltage Drop = {vd_percent:.2f} %**")
+st.markdown(f"<h3 style='color:{status_color}; text-align:center;'>{status}</h3>", unsafe_allow_html=True)
 
-ttk.Label(frame, text="Maximum Demand (kVA):").grid(row=1, column=0, sticky="w", pady=8)
-demand_var = tk.DoubleVar(value=500)
-ttk.Entry(frame, textvariable=demand_var, width=30).grid(row=1, column=1, pady=8)
+# Metrics
+c1, c2, c3 = st.columns(3)
+c1.metric("Current", f"{current:.1f} A")
+c2.metric("Resistance", f"{R:.4f} Ω/km")
+c3.metric("Reactance", f"{X:.2f} Ω/km")
 
-ttk.Label(frame, text="Feeder Length (km):").grid(row=2, column=0, sticky="w", pady=8)
-length_var = tk.DoubleVar(value=5.0)
-ttk.Entry(frame, textvariable=length_var, width=30).grid(row=2, column=1, pady=8)
+# Graphs
+st.subheader("📊 Voltage Drop Analysis")
 
-ttk.Label(frame, text="Power Factor:").grid(row=3, column=0, sticky="w", pady=8)
-pf_var = tk.DoubleVar(value=0.85)
-ttk.Entry(frame, textvariable=pf_var, width=30).grid(row=3, column=1, pady=8)
+fig1 = go.Figure(go.Bar(x=["Voltage Drop"], y=[vd_percent], marker_color=status_color))
+fig1.update_layout(yaxis_range=[0, max(12, vd_percent + 3)], height=350)
+st.plotly_chart(fig1, use_container_width=True)
 
-ttk.Label(frame, text="Conductor Type:").grid(row=4, column=0, sticky="w", pady=8)
-conductor_var = tk.StringVar(value="Rabbit")
-cond_combo = ttk.Combobox(frame, textvariable=conductor_var, values=["Weasel", "Rabbit", "Raccoon", "Dog"], state="readonly")
-cond_combo.grid(row=4, column=1, pady=8)
-
-ttk.Button(frame, text="Calculate Voltage Drop", command=calculate_vd).grid(row=5, column=0, columnspan=2, pady=20)
-
-# Result
-result_text = tk.StringVar()
-status_text = tk.StringVar(value="Enter values and click Calculate")
-
-tk.Label(root, textvariable=result_text, font=("Arial", 18, "bold"), bg="#0f172a", fg="white").pack(pady=10)
-status_label = tk.Label(root, textvariable=status_text, font=("Arial", 14), bg="#0f172a")
-status_label.pack(pady=5)
-
-# Graph
-fig, ax = plt.subplots(figsize=(8, 4))
-canvas = FigureCanvasTkAgg(fig, root)
-canvas.get_tk_widget().pack(pady=10, fill="x", padx=30)
+fig2 = px.pie(values=[vd_percent, 100 - vd_percent], names=["Drop", "Remaining Voltage"],
+              title="Voltage Drop Distribution", color_discrete_sequence=[status_color, "#64748b"])
+st.plotly_chart(fig2, use_container_width=True)
 
 # Rough Sketch
-sketch = tk.Label(root, text="""Substation ────────────────────► Consumer End
-          {} Conductor   ({} km)""".format("Rabbit", 5.0), 
-          font=("Courier", 11), bg="#1e2937", fg="#94a3b8", justify="left")
-sketch.pack(pady=15, fill="x", padx=40)
+st.subheader("📍 Rough Feeder Sketch")
+st.markdown(f"""
+Substation (11 kV) ───────────────────────────────► Consumer End
+{conductor} Conductor   ({length_km} km)
+Voltage at Consumer End ≈ {11000 - vd_volts:.0f} V
+text""")
+
+# AI Insight
+st.subheader("🤖 AI Recommendation")
+if vd_percent > 9:
+    st.error("This level of voltage drop usually causes complaints. PSPCL may ask for feeder augmentation or new substation.")
+elif vd_percent > 5:
+    st.warning("Voltage is acceptable but on the higher side. Plan for future load growth.")
+else:
+    st.success("Voltage profile is good. No immediate action needed.")
 
 # Footer
-footer_frame = tk.Frame(root, bg="#0f172a")
-footer_frame.pack(side="bottom", fill="x", pady=20)
-
-tk.Label(footer_frame, text="Made with ❤️ by @iamanujnarang", 
-         font=("Arial", 14), bg="#0f172a", fg="#facc15").pack()
-
-tk.Label(footer_frame, text="Facebook | Instagram | X | LinkedIn   →   iamanujnarang", 
-         font=("Arial", 10), bg="#0f172a", fg="#94a3b8").pack(pady=5)
-
-tk.Label(footer_frame, text="Powered by Beeclue Tech", fg="#60a5fa", 
-         bg="#0f172a", cursor="hand2").pack()
-tk.Label(footer_frame, text="https://beeclue.com/", fg="#60a5fa", 
-         bg="#0f172a").pack()
-
-root.mainloop()
+st.markdown("---")
+st.markdown("""
+<div class="footer">
+    <div class="made-with">
+        Made with ❤️ by <strong>@iamanujnarang</strong>
+    </div>
+    <p>
+        <a href="https://facebook.com/iamanujnarang" target="_blank">Facebook</a> |
+        <a href="https://instagram.com/iamanujnarang" target="_blank">Instagram</a> |
+        <a href="https://x.com/iamanujnarang" target="_blank">X</a> |
+        <a href="https://linkedin.com/in/iamanujnarang" target="_blank">LinkedIn</a>
+    </p>
+    <p>
+        Powered by <a href="https://beeclue.com/" target="_blank" style="color:#60a5fa;">Beeclue Tech</a>
+    </p>
+</div>
+""", unsafe_allow_html=True)
