@@ -5,3 +5,4 @@ xlsxwriter
 graphviz
 fpdf
 base64
+numpy
