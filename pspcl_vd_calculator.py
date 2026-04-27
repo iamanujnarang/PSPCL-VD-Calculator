@@ -2,14 +2,11 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
-import graphviz
-from fpdf import FPDF
-import base64
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="PSPCL VD Calculator Pro", page_icon="⚡", layout="wide")
 
-# --- CONSTANTS ---
+# --- ASSETS ---
 PSPCL_LOGO = "https://pspcl.in/assets/images/logo.png"
 INSTA_ICON = "https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
 FB_ICON = "https://upload.wikimedia.org/wikipedia/commons/1/1b/Facebook_icon.svg"
@@ -22,47 +19,52 @@ VD_FACTORS = {
     "XLPE CABLE 150 SQMM": 0.0285, "XLPE CABLE 35 SQMM": 0.1150
 }
 
-# --- CUSTOM CSS ---
+# --- STYLING WITH HOVER EFFECTS ---
 st.markdown(f"""
 <style>
     .header-box {{ text-align: center; padding: 25px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 25px; border-top: 6px solid #ffcc00; }}
     .formula-section {{ background: #ffffff; padding: 30px; border-radius: 15px; border: 1px solid #dee2e6; margin-top: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }}
     .footer-container {{ text-align: center; margin-top: 60px; padding: 40px; border-top: 1px solid #eee; background: #fdfdfd; }}
-    .social-logo {{ width: 35px; margin: 0 15px; transition: transform 0.3s; cursor: pointer; }}
-    .social-logo:hover {{ transform: scale(1.3); }}
+    
+    /* --- HOVER ANIMATION LOGIC --- */
+    .social-logo {{ 
+        width: 35px; 
+        margin: 0 15px; 
+        transition: transform 0.3s ease-in-out, filter 0.3s ease-in-out; 
+        cursor: pointer;
+    }}
+    .social-logo:hover {{ 
+        transform: scale(1.3); 
+        filter: brightness(1.2); 
+    }}
+    
     .stMetric {{ background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #eee; }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER ---
+# --- HEADER (Professional word removed as requested) ---
 st.markdown(f'<div class="header-box"><img src="{PSPCL_LOGO}" width="100"><h1>PUNJAB STATE POWER CORPORATION LIMITED</h1><h3>11kV Voltage Drop Calculation Tool</h3></div>', unsafe_allow_html=True)
 
-# --- SESSION STATE INITIALIZATION ---
-if 'df_result' not in st.session_state:
-    st.session_state.df_result = None
-if 'summary_metrics' not in st.session_state:
-    st.session_state.summary_metrics = {}
-
-# --- SIDEBAR (Blank Defaults) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("📝 Feeder Details")
-    feeder_name = st.text_input("Feeder Name", placeholder="e.g. 11kV New Amritsar")
-    substation_name = st.text_input("Feeding Substation", placeholder="e.g. 66kV Mall Mandi")
+    feeder_name = st.text_input("Feeder Name", placeholder="e.g. 11kV Mall Mandi")
     sub_div = st.text_input("Sub-Division", placeholder="e.g. Mall Mandi")
     div = st.text_input("Division", placeholder="e.g. City Center")
     
     st.divider()
     st.header("⚡ Load & Sections")
-    mdi_amps = st.number_input("Max Demand (MDI Amps)", min_value=0.0, value=0.0, step=0.1)
-    num_sections = st.number_input("Number of Sections", min_value=1, max_value=100, value=1)
+    mdi_amps = st.number_input("Max Demand (MDI Amps)", min_value=0.0, value=0.0, step=0.1, format="%.1f")
+    num_sections = st.number_input("Number of Sections", min_value=1, max_value=100, value=2)
     
     mdi_kva = round(np.sqrt(3) * 11 * mdi_amps, 4)
     st.success(f"MDI in kVA: {mdi_kva}")
 
-# --- STEP 1: DATA ENTRY ---
+# --- DATA EDITOR ---
 st.subheader("📍 Step 1: Sectional Data Entry")
 points = [f"{chr(65+i)}-{chr(66+i)}" for i in range(num_sections)]
-df_init = pd.DataFrame({
+
+df_input = pd.DataFrame({
     "POINT": points,
     "CONDUCTOR SIZE": [None] * num_sections,
     "DISTANCE (KM)": [0.0] * num_sections,
@@ -70,138 +72,122 @@ df_init = pd.DataFrame({
 })
 
 edited_df = st.data_editor(
-    df_init,
+    df_input,
     column_config={
         "POINT": st.column_config.TextColumn("Section", disabled=True),
         "CONDUCTOR SIZE": st.column_config.SelectboxColumn("Conductor Type", options=list(VD_FACTORS.keys()), required=True),
-        "DISTANCE (KM)": st.column_config.NumberColumn("Length (km)", format="%.3f"),
-        "SECTION LOAD (kVA)": st.column_config.NumberColumn("Tapping Load (kVA)", format="%.1f")
+        "DISTANCE (KM)": st.column_config.NumberColumn("Length (km)", format="%.3f", min_value=0.0),
+        "SECTION LOAD (kVA)": st.column_config.NumberColumn("Tapping Load (kVA)", format="%.1f", min_value=0.0)
     },
-    use_container_width=True, num_rows="fixed"
+    use_container_width=True,
+    num_rows="dynamic"
 )
 
-# --- BUTTONS ---
-col1, col2, col3 = st.columns(3)
-
-# --- CALCULATION LOGIC ---
-if col1.button("🚀 Calculate Voltage Drop", type="primary", use_container_width=True):
+# --- CALCULATIONS ---
+if st.button("🚀 Calculate Voltage Drop", type="primary"):
     df = edited_df.copy()
-    if df["CONDUCTOR SIZE"].isnull().any():
-        st.error("Bhai, saare sections ke liye Conductor Size select karo pehle!")
-    else:
-        # Tail-to-Source Logic
-        loads = df["SECTION LOAD (kVA)"].fillna(0).tolist()
-        upto_loads = [0] * len(loads)
-        temp_sum = 0
-        for i in range(len(loads)-1, -1, -1):
-            temp_sum += loads[i]
-            upto_loads[i] = temp_sum
-        
-        df["UPTO LOAD (kVA)"] = upto_loads
-        df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
-        df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
-        
-        total_vd = df["VD (VOLTS)"].sum()
-        total_load_kva = upto_loads[0] if upto_loads else 0
-        df_val = mdi_kva / total_load_kva if total_load_kva > 0 else 0
-        actual_vd = total_vd * df_val
-        vd_per = (actual_vd / (11000 - actual_vd) * 100) if (11000 - actual_vd) > 0 else 0
-        
-        st.session_state.df_result = df
-        st.session_state.summary_metrics = {
-            "total_vd": total_vd, "total_load": total_load_kva,
-            "df_val": df_val, "actual_vd": actual_vd, "vd_per": vd_per
-        }
+    
+    # Logic: Tail to Source Cumulative Load (Original Logic)
+    loads = df["SECTION LOAD (kVA)"].fillna(0).tolist()
+    upto_loads = [0] * len(loads)
+    temp_sum = 0
+    for i in range(len(loads)-1, -1, -1):
+        temp_sum += loads[i]
+        upto_loads[i] = temp_sum
+    
+    df["UPTO LOAD (kVA)"] = upto_loads
+    df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
+    df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
+    
+    # Totals for the Grand Total Row
+    total_len = df["DISTANCE (KM)"].sum()
+    total_section_load = df["SECTION LOAD (kVA)"].sum()
+    total_vd_volts = df["VD (VOLTS)"].sum()
+    
+    total_load_at_source = upto_loads[0] if len(upto_loads) > 0 else 0
+    
+    # Formulas for summary section
+    df_val = mdi_kva / total_load_at_source if total_load_at_source > 0 else 0
+    actual_vd_v = total_vd_volts * df_val
+    denom = (11000 - actual_vd_v)
+    vd_percent = (actual_vd_v / denom * 100) if denom > 0 else 0
 
-# --- DISPLAY RESULTS & FORMULAS ---
-if st.session_state.df_result is not None:
-    res = st.session_state.df_result
-    met = st.session_state.summary_metrics
-    
-    st.subheader("📊 Step 2: Analysis Table")
-    st.dataframe(res.style.format({"DISTANCE (KM)": "{:.3f}", "UPTO LOAD (kVA)": "{:.2f}", "VD (VOLTS)": "{:.4f}"}), use_container_width=True)
-    
+    # --- TABLE ENHANCEMENT: GRAND TOTAL ROW ---
+    summary_row = pd.DataFrame({
+        "POINT": ["**GRAND TOTAL**"],
+        "CONDUCTOR SIZE": ["-"],
+        "DISTANCE (KM)": [total_len],
+        "SECTION LOAD (kVA)": [total_section_load],
+        "UPTO LOAD (kVA)": [0.0],
+        "VD FACTOR": [0.0],
+        "VD (VOLTS)": [total_vd_volts]
+    })
+    df_display = pd.concat([df, summary_row], ignore_index=True)
+
+    # --- DISPLAY CALCULATION TABLE ---
+    st.divider()
+    st.subheader("📊 Step 2: Voltage Drop Analysis Table")
+    st.dataframe(df_display.style.format({
+        "DISTANCE (KM)": "{:.3f}",
+        "SECTION LOAD (kVA)": "{:.1f}",
+        "UPTO LOAD (kVA)": "{:.2f}",
+        "VD (VOLTS)": "{:.4f}"
+    }), use_container_width=True)
+
+    # --- FORMULAS & FINAL RESULTS ---
     st.markdown('<div class="formula-section">', unsafe_allow_html=True)
-    st.subheader("🧮 Detailed Calculations")
-    f1, f2, f3 = st.columns(3)
+    st.subheader("🧮 Applied Formulas & Final Summary")
     
-    with f1:
+    c1, c2, c3 = st.columns(3)
+    
+    with c1:
+        st.info("1. Demand Factor (D.F.)")
         st.latex(r"D.F. = \frac{\sqrt{3} \times 11 \times MDI(A)}{Total\ kVA}")
-        st.write(f"**Calc:** {mdi_kva} / {met['total_load']:.2f}")
-        st.metric("Demand Factor", f"{met['df_val']:.4f}")
-        
-    with f2:
-        st.latex(r"Actual\ V.D. = \sum V.D. \times D.F.")
-        st.write(f"**Calc:** {met['total_vd']:.2f} × {met['df_val']:.4f}")
-        st.metric("Actual VD", f"{met['actual_vd']:.2f} Volts")
-        
-    with f3:
+        st.markdown(f"**Calculation:** {mdi_kva} / {total_load_at_source}")
+        st.metric("Result (D.F.)", f"{df_val:.4f}")
+
+    with c2:
+        st.info("2. Actual Voltage Drop")
+        st.latex(r"Actual\ V.D. = Total\ V.D. \times D.F.")
+        st.markdown(f"**Calculation:** {total_vd_volts:.2f} × {df_val:.4f}")
+        st.metric("Actual VD", f"{actual_vd_v:.2f} Volts")
+
+    with c3:
+        st.info("3. Percentage Voltage Drop")
         st.latex(r"\% V.D. = \frac{Actual\ V.D.}{11000 - Actual\ V.D.} \times 100")
-        st.write(f"**Calc:** ({met['actual_vd']:.2f} / {11000 - met['actual_vd']:.2f}) × 100")
-        st.metric("Final % VD", f"{met['vd_per']:.3f}%")
+        color = "normal" if vd_percent < 9 else "inverse"
+        st.metric("Final % VD", f"{vd_percent:.3f}%", delta_color=color)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # Excel Download
-    csv = res.to_csv(index=False).encode('utf-8')
-    col3.download_button("📊 Download Excel (CSV)", csv, f"{feeder_name}_Calculation.csv", "text/csv", use_container_width=True)
+    # --- EXPORT REPORT ---
+    def get_csv():
+        output = io.StringIO()
+        output.write(f"OFFICIAL VOLTAGE DROP REPORT: {feeder_name.upper()}\n")
+        output.write(f"SUB-DIVISION: {sub_div.upper()}, DIVISION: {div.upper()}\n\n")
+        df_display.to_csv(output, index=False)
+        output.write(f"\nTOTAL VD (VOLTS),{total_vd_volts:.4f}\n")
+        output.write(f"DEMAND FACTOR,{df_val:.4f}\n")
+        output.write(f"ACTUAL VD (VOLTS),{actual_vd_v:.4f}\n")
+        output.write(f"PERCENTAGE VD (%),{vd_percent:.4f}%\n")
+        output.write(f"\n\nSDO {sub_div.upper()}\nStamp & Sign\n")
+        return output.getvalue()
 
-# --- STEP 3: SKETCH & PDF ---
-if col2.button("🎨 Generate Sketch & PDF", use_container_width=True):
-    if st.session_state.df_result is None:
-        st.warning("Pehle Calculation wala button dabao saale!")
-    else:
-        df = st.session_state.df_result
-        met = st.session_state.summary_metrics
-        
-        st.subheader("🎨 Single Line Diagram (Sketch)")
-        dot = graphviz.Digraph()
-        dot.attr(rankdir='BT')
-        dot.node('SS', f'{substation_name}\n(Source)\n{met["total_load"]} kVA', shape='house', style='filled', fillcolor='gold')
-        
-        prev = 'SS'
-        for i, row in df.iterrows():
-            nid = f"P{i}"
-            is_cable = "CABLE" in row['CONDUCTOR SIZE'].upper()
-            label = f"{row['CONDUCTOR SIZE']}\n{row['DISTANCE (KM)']}km | {row['VD (VOLTS)']:.2f}V"
-            dot.node(nid, row['POINT'].split('-')[-1], shape='doublecircle' if is_cable else 'circle', style='filled', fillcolor='aliceblue')
-            dot.edge(nid, prev, label=label, color='red', style='dashed' if is_cable else 'solid', penwidth='2')
-            prev = nid
-        st.graphviz_chart(dot)
-        
-        # PDF EXPORT
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", 'B', 16)
-        pdf.cell(200, 10, "PSPCL VOLTAGE DROP REPORT", ln=True, align='C')
-        pdf.set_font("Arial", '', 12)
-        pdf.cell(200, 10, f"Feeder: {feeder_name} | Sub-Division: {sub_div}", ln=True, align='C')
-        
-        pdf.ln(10)
-        pdf.set_font("Arial", 'B', 10)
-        cols = ["Section", "Conductor", "Dist(km)", "Load(kVA)", "VD(V)"]
-        for c in cols: pdf.cell(38, 10, c, 1)
-        pdf.ln()
-        
-        pdf.set_font("Arial", '', 9)
-        for _, r in df.iterrows():
-            pdf.cell(38, 8, str(r['POINT']), 1)
-            pdf.cell(38, 8, str(r['CONDUCTOR SIZE'])[:15], 1)
-            pdf.cell(38, 8, str(r['DISTANCE (KM)']), 1)
-            pdf.cell(38, 8, str(r['SECTION LOAD (kVA)']), 1)
-            pdf.cell(38, 8, f"{r['VD (VOLTS)']:.2f}", 1)
-            pdf.ln()
-            
-        pdf.ln(15)
-        pdf.set_font("Arial", 'B', 12)
-        pdf.cell(0, 10, f"Final Voltage Drop: {met['vd_per']:.3f}%", ln=True)
-        
-        # STAMP
-        pdf.ln(20)
-        pdf.cell(120)
-        pdf.multi_cell(60, 7, f"__________________\nSDO OP SUB-DIV\nPSPCL {sub_div.upper()}", align='C')
-        
-        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-        st.download_button("📥 Download Official PDF Report", pdf_bytes, f"{feeder_name}_Report.pdf", "application/pdf", use_container_width=True)
+    st.download_button("📥 Download Official CSV Report", get_csv(), f"{feeder_name}_VD_Report.csv", "text/csv")
 
-# --- FOOTER ---
-st.markdown(f'<div class="footer-container"><b>Made with ❤️ by Anuj Narang</b><br>Powered by Beeclue Tech</div>', unsafe_allow_html=True)
+else:
+    st.warning("Please fill the data and click 'Calculate Voltage Drop' to see the results.")
+
+# --- UPDATED FOOTER ---
+st.markdown(f"""
+<div class="footer-container">
+    <p style="font-size:1.2em; font-weight:bold; color:#333;">Made with ❤️ by Anuj Narang</p>
+    <div style="margin: 25px 0;">
+        <a href="https://instagram.com/iamanujnarang" target="_blank"><img src="{INSTA_ICON}" class="social-logo" title="Instagram"></a>
+        <a href="https://facebook.com/iamanujnarang" target="_blank"><img src="{FB_ICON}" class="social-logo" title="Facebook"></a>
+        <a href="https://x.com/iamanujnarang" target="_blank"><img src="{X_ICON}" class="social-logo" title="X (Twitter)"></a>
+        <a href="https://linkedin.com/in/iamanujnarang" target="_blank"><img src="{LINKEDIN_ICON}" class="social-logo" title="LinkedIn"></a>
+    </div>
+    <p style="color:#666;">Powered by <a href="https://beeclue.com" target="_blank" style="color:#004a99; text-decoration:none; font-weight:bold;">Beeclue Tech</a></p>
+</div>
+""", unsafe_allow_html=True)
