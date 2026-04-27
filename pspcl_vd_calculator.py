@@ -19,19 +19,31 @@ VD_FACTORS = {
     "XLPE CABLE 150 SQMM": 0.0285, "XLPE CABLE 35 SQMM": 0.1150
 }
 
-# --- STYLING ---
+# --- STYLING WITH HOVER EFFECTS ---
 st.markdown(f"""
 <style>
     .header-box {{ text-align: center; padding: 25px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 25px; border-top: 6px solid #ffcc00; }}
     .formula-section {{ background: #ffffff; padding: 30px; border-radius: 15px; border: 1px solid #dee2e6; margin-top: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }}
-    .footer-container {{ text-align: center; margin-top: 60px; padding: 30px; border-top: 1px solid #eee; }}
-    .social-logo {{ width: 30px; margin: 0 15px; }}
+    .footer-container {{ text-align: center; margin-top: 60px; padding: 40px; border-top: 1px solid #eee; background: #fdfdfd; }}
+    
+    /* --- HOVER ANIMATION LOGIC --- */
+    .social-logo {{ 
+        width: 35px; 
+        margin: 0 15px; 
+        transition: transform 0.3s ease-in-out, filter 0.3s ease-in-out; 
+        cursor: pointer;
+    }}
+    .social-logo:hover {{ 
+        transform: scale(1.3); /* Icon bada ho jayega */
+        filter: brightness(1.2); /* Thoda shine karega */
+    }}
+    
     .stMetric {{ background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #eee; }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER ---
-st.markdown(f'<div class="header-box"><img src="{PSPCL_LOGO}" width="100"><h1>PUNJAB STATE POWER CORPORATION LIMITED</h1><h3>Professional 11kV Voltage Drop Calculation Tool</h3></div>', unsafe_allow_html=True)
+# --- HEADER (Professional Word Removed) ---
+st.markdown(f'<div class="header-box"><img src="{PSPCL_LOGO}" width="100"><h1>PUNJAB STATE POWER CORPORATION LIMITED</h1><h3>11kV Voltage Drop Calculation Tool</h3></div>', unsafe_allow_html=True)
 
 # --- SIDEBAR ---
 with st.sidebar:
@@ -50,12 +62,10 @@ with st.sidebar:
 
 # --- DATA EDITOR ---
 st.subheader("📍 Step 1: Sectional Data Entry")
-# Generate Point Labels A-B, B-C, etc.
 points = []
 for i in range(num_sections):
     points.append(f"{chr(65+i)}-{chr(66+i)}")
 
-# Create empty dataframe for input
 df_input = pd.DataFrame({
     "POINT": points,
     "CONDUCTOR SIZE": [None] * num_sections,
@@ -92,25 +102,39 @@ if st.button("🚀 Calculate Voltage Drop", type="primary"):
     df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
     
     total_vd_v = df["VD (VOLTS)"].sum()
+    total_dist = df["DISTANCE (KM)"].sum()
+    total_sec_load = df["SECTION LOAD (kVA)"].sum()
     total_load_at_source = upto_loads[0] if len(upto_loads) > 0 else 0
     
-    # Formula 1: Demand Factor
+    # Formula Calculations
     df_val = mdi_kva / total_load_at_source if total_load_at_source > 0 else 0
-    
-    # Formula 2: Actual VD
     actual_vd_v = total_vd_v * df_val
-    
-    # Formula 3: % VD
-    # %VD = (Actual VD / (11000 - Actual VD)) * 100
     denom = (11000 - actual_vd_v)
     vd_percent = (actual_vd_v / denom * 100) if denom > 0 else 0
+
+    # --- TABLE ENHANCEMENT: ADD TOTAL ROW ---
+    summary_row = pd.DataFrame({
+        "POINT": ["**TOTAL**"],
+        "CONDUCTOR SIZE": ["-"],
+        "DISTANCE (KM)": [total_dist],
+        "SECTION LOAD (kVA)": [total_sec_load],
+        "UPTO LOAD (kVA)": [0.0],
+        "VD FACTOR": [0.0],
+        "VD (VOLTS)": [total_vd_v]
+    })
+    df_with_total = pd.concat([df, summary_row], ignore_index=True)
 
     # --- DISPLAY CALCULATION TABLE ---
     st.divider()
     st.subheader("📊 Step 2: Voltage Drop Analysis Table")
-    st.dataframe(df.style.format({"VD (VOLTS)": "{:.4f}", "UPTO LOAD (kVA)": "{:.2f}"}), use_container_width=True)
+    st.dataframe(df_with_total.style.format({
+        "DISTANCE (KM)": "{:.3f}", 
+        "VD (VOLTS)": "{:.4f}", 
+        "UPTO LOAD (kVA)": "{:.2f}",
+        "SECTION LOAD (kVA)": "{:.1f}"
+    }), use_container_width=True)
 
-    # --- FORMULAS & FINAL RESULTS (BIG & VISIBLE) ---
+    # --- FORMULAS & FINAL RESULTS ---
     st.markdown('<div class="formula-section">', unsafe_allow_html=True)
     st.subheader("🧮 Applied Formulas & Final Summary")
     
@@ -141,7 +165,7 @@ if st.button("🚀 Calculate Voltage Drop", type="primary"):
         output = io.StringIO()
         output.write(f"OFFICIAL VOLTAGE DROP REPORT: {feeder_name.upper()}\n")
         output.write(f"SUB-DIVISION: {sub_div.upper()}, DIVISION: {div.upper()}\n\n")
-        df.to_csv(output, index=False)
+        df_with_total.to_csv(output, index=False)
         output.write(f"\nTOTAL VD (VOLTS),{total_vd_v:.4f}\n")
         output.write(f"DEMAND FACTOR,{df_val:.4f}\n")
         output.write(f"ACTUAL VD (VOLTS),{actual_vd_v:.4f}\n")
@@ -153,56 +177,6 @@ if st.button("🚀 Calculate Voltage Drop", type="primary"):
 
 else:
     st.warning("Please fill the data and click 'Calculate Voltage Drop' to see the results.")
-
-# --- FOOTER ---
-# --- UPDATED STYLING WITH HOVER EFFECTS ---
-st.markdown(f"""
-<style>
-    .header-box {{ 
-        text-align: center; 
-        padding: 25px; 
-        background: white; 
-        border-radius: 15px; 
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
-        margin-bottom: 25px; 
-        border-top: 6px solid #ffcc00; 
-    }}
-    .formula-section {{ 
-        background: #ffffff; 
-        padding: 30px; 
-        border-radius: 15px; 
-        border: 1px solid #dee2e6; 
-        margin-top: 30px; 
-        box-shadow: 0 10px 25px rgba(0,0,0,0.05); 
-    }}
-    .footer-container {{ 
-        text-align: center; 
-        margin-top: 60px; 
-        padding: 40px; 
-        border-top: 1px solid #eee; 
-        background: #fdfdfd;
-    }}
-    /* --- HOVER ANIMATION LOGIC --- */
-    .social-logo {{ 
-        width: 35px; 
-        margin: 0 15px; 
-        transition: transform 0.3s ease-in-out, filter 0.3s ease-in-out; 
-        cursor: pointer;
-    }}
-    .social-logo:hover {{ 
-        transform: scale(1.3); /* Icon bada ho jayega */
-        filter: brightness(1.2); /* Thoda shine karega */
-    }}
-    .stMetric {{ 
-        background: #f8f9fa; 
-        padding: 15px; 
-        border-radius: 10px; 
-        border: 1px solid #eee; 
-    }}
-</style>
-""", unsafe_allow_html=True)
-
-# --- (Rest of your app code remains the same) ---
 
 # --- UPDATED FOOTER ---
 st.markdown(f"""
