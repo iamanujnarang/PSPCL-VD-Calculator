@@ -4,5 +4,4 @@ matplotlib
 xlsxwriter
 graphviz
 fpdf2
-base64
 numpy
