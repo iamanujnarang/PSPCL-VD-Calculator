@@ -34,15 +34,15 @@ st.markdown(f"""
         cursor: pointer;
     }}
     .social-logo:hover {{ 
-        transform: scale(1.3); /* Icon bada ho jayega */
-        filter: brightness(1.2); /* Thoda shine karega */
+        transform: scale(1.3); 
+        filter: brightness(1.2); 
     }}
     
     .stMetric {{ background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #eee; }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER (Professional Word Removed) ---
+# --- HEADER (Professional word removed as requested) ---
 st.markdown(f'<div class="header-box"><img src="{PSPCL_LOGO}" width="100"><h1>PUNJAB STATE POWER CORPORATION LIMITED</h1><h3>11kV Voltage Drop Calculation Tool</h3></div>', unsafe_allow_html=True)
 
 # --- SIDEBAR ---
@@ -62,9 +62,7 @@ with st.sidebar:
 
 # --- DATA EDITOR ---
 st.subheader("📍 Step 1: Sectional Data Entry")
-points = []
-for i in range(num_sections):
-    points.append(f"{chr(65+i)}-{chr(66+i)}")
+points = [f"{chr(65+i)}-{chr(66+i)}" for i in range(num_sections)]
 
 df_input = pd.DataFrame({
     "POINT": points,
@@ -89,7 +87,7 @@ edited_df = st.data_editor(
 if st.button("🚀 Calculate Voltage Drop", type="primary"):
     df = edited_df.copy()
     
-    # Logic: Tail to Source Cumulative Load
+    # Logic: Tail to Source Cumulative Load (Original Logic)
     loads = df["SECTION LOAD (kVA)"].fillna(0).tolist()
     upto_loads = [0] * len(loads)
     temp_sum = 0
@@ -101,37 +99,39 @@ if st.button("🚀 Calculate Voltage Drop", type="primary"):
     df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
     df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
     
-    total_vd_v = df["VD (VOLTS)"].sum()
-    total_dist = df["DISTANCE (KM)"].sum()
-    total_sec_load = df["SECTION LOAD (kVA)"].sum()
+    # Totals for the Grand Total Row
+    total_len = df["DISTANCE (KM)"].sum()
+    total_section_load = df["SECTION LOAD (kVA)"].sum()
+    total_vd_volts = df["VD (VOLTS)"].sum()
+    
     total_load_at_source = upto_loads[0] if len(upto_loads) > 0 else 0
     
-    # Formula Calculations
+    # Formulas for summary section
     df_val = mdi_kva / total_load_at_source if total_load_at_source > 0 else 0
-    actual_vd_v = total_vd_v * df_val
+    actual_vd_v = total_vd_volts * df_val
     denom = (11000 - actual_vd_v)
     vd_percent = (actual_vd_v / denom * 100) if denom > 0 else 0
 
-    # --- TABLE ENHANCEMENT: ADD TOTAL ROW ---
+    # --- TABLE ENHANCEMENT: GRAND TOTAL ROW ---
     summary_row = pd.DataFrame({
-        "POINT": ["**TOTAL**"],
+        "POINT": ["**GRAND TOTAL**"],
         "CONDUCTOR SIZE": ["-"],
-        "DISTANCE (KM)": [total_dist],
-        "SECTION LOAD (kVA)": [total_sec_load],
+        "DISTANCE (KM)": [total_len],
+        "SECTION LOAD (kVA)": [total_section_load],
         "UPTO LOAD (kVA)": [0.0],
         "VD FACTOR": [0.0],
-        "VD (VOLTS)": [total_vd_v]
+        "VD (VOLTS)": [total_vd_volts]
     })
-    df_with_total = pd.concat([df, summary_row], ignore_index=True)
+    df_display = pd.concat([df, summary_row], ignore_index=True)
 
     # --- DISPLAY CALCULATION TABLE ---
     st.divider()
     st.subheader("📊 Step 2: Voltage Drop Analysis Table")
-    st.dataframe(df_with_total.style.format({
-        "DISTANCE (KM)": "{:.3f}", 
-        "VD (VOLTS)": "{:.4f}", 
+    st.dataframe(df_display.style.format({
+        "DISTANCE (KM)": "{:.3f}",
+        "SECTION LOAD (kVA)": "{:.1f}",
         "UPTO LOAD (kVA)": "{:.2f}",
-        "SECTION LOAD (kVA)": "{:.1f}"
+        "VD (VOLTS)": "{:.4f}"
     }), use_container_width=True)
 
     # --- FORMULAS & FINAL RESULTS ---
@@ -149,7 +149,7 @@ if st.button("🚀 Calculate Voltage Drop", type="primary"):
     with c2:
         st.info("2. Actual Voltage Drop")
         st.latex(r"Actual\ V.D. = Total\ V.D. \times D.F.")
-        st.markdown(f"**Calculation:** {total_vd_v:.2f} × {df_val:.4f}")
+        st.markdown(f"**Calculation:** {total_vd_volts:.2f} × {df_val:.4f}")
         st.metric("Actual VD", f"{actual_vd_v:.2f} Volts")
 
     with c3:
@@ -165,8 +165,8 @@ if st.button("🚀 Calculate Voltage Drop", type="primary"):
         output = io.StringIO()
         output.write(f"OFFICIAL VOLTAGE DROP REPORT: {feeder_name.upper()}\n")
         output.write(f"SUB-DIVISION: {sub_div.upper()}, DIVISION: {div.upper()}\n\n")
-        df_with_total.to_csv(output, index=False)
-        output.write(f"\nTOTAL VD (VOLTS),{total_vd_v:.4f}\n")
+        df_display.to_csv(output, index=False)
+        output.write(f"\nTOTAL VD (VOLTS),{total_vd_volts:.4f}\n")
         output.write(f"DEMAND FACTOR,{df_val:.4f}\n")
         output.write(f"ACTUAL VD (VOLTS),{actual_vd_v:.4f}\n")
         output.write(f"PERCENTAGE VD (%),{vd_percent:.4f}%\n")
