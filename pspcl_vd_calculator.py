@@ -2,181 +2,191 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+import time
 import graphviz
 from fpdf import FPDF
-import base64
+from datetime import datetime
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="PSPCL VD Calculator Pro", page_icon="⚡", layout="wide")
+# ==========================================
+# 1. GLOBAL CONFIGURATION & CONSTANTS
+# ==========================================
+st.set_page_config(
+    page_title="PSPCL 11kV VD Calculator Pro",
+    page_icon="⚡",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- CONSTANTS & ASSETS ---
-# Direct link to a stable PSPCL logo source
-PSPCL_LOGO = "https://raw.githubusercontent.com/iamanujnarang/assets/main/pspcl_logo.png" 
-# Note: Agar upar wala link na chale toh niche wala fallback hai
-FALLBACK_LOGO = "https://pspcl.in/assets/images/logo.png"
-
+# Assets & Branding Links
+PSPCL_LOGO = "https://upload.wikimedia.org/wikipedia/en/3/3a/Punjab_State_Power_Corporation_Limited_logo.png"
 INSTA_ICON = "https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
 FB_ICON = "https://upload.wikimedia.org/wikipedia/commons/1/1b/Facebook_icon.svg"
 X_ICON = "https://upload.wikimedia.org/wikipedia/commons/b/b7/X_logo.jpg"
-LINKEDIN_ICON = "https://upload.wikimedia.org/wikipedia/commons/c/ca/LinkedIn_logo_initials.png"
+LINKED_ICON = "https://upload.wikimedia.org/wikipedia/commons/c/ca/LinkedIn_logo_initials.png"
 BEECLUE_LOGO = "https://beeclue.com/wp-content/uploads/2023/04/Beeclue-Logo-New.png"
 
+# Technical Constants (Standard 11kV Factors)
 VD_FACTORS = {
-    "ACSR 100 SQMM": 0.0415, "ACSR 80 SQMM": 0.0512, "ACSR 50 SQMM": 0.0910,
-    "ACSR 30 SQMM": 0.1520, "ACSR 20 SQMM": 0.2250, "XLPE CABLE 300 SQMM": 0.0146,
-    "XLPE CABLE 150 SQMM": 0.0285, "XLPE CABLE 35 SQMM": 0.1150
+    "ACSR 100 SQMM (Dog)": 0.0415,
+    "ACSR 80 SQMM (Wolf)": 0.0512,
+    "ACSR 50 SQMM (Rabbit)": 0.0910,
+    "ACSR 30 SQMM (Weasel)": 0.1520,
+    "ACSR 20 SQMM (Squirrel)": 0.2250,
+    "XLPE CABLE 300 SQMM": 0.0146,
+    "XLPE CABLE 150 SQMM": 0.0285,
+    "XLPE CABLE 35 SQMM": 0.1150
 }
 
-# --- STYLING ---
+# ==========================================
+# 2. ADVANCED STYLING (CSS)
+# ==========================================
 st.markdown(f"""
 <style>
-    .header-box {{ text-align: center; padding: 25px; background: #ffffff; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 25px; border-top: 8px solid #ffcc00; }}
-    .pspcl-main-logo {{ height: 120px; width: auto; margin-bottom: 15px; }}
-    .formula-section {{ background: #ffffff; padding: 30px; border-radius: 15px; border: 1px solid #dee2e6; margin-top: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }}
-    .footer-container {{ text-align: center; margin-top: 60px; padding: 40px; border-top: 1px solid #eee; background: #fdfdfd; }}
-    .social-logo {{ width: 35px; margin: 0 10px; transition: 0.3s; cursor: pointer; }}
-    .social-logo:hover {{ transform: scale(1.3); }}
-    .beeclue-footer-logo {{ width: 120px; margin-top: 15px; }}
+    /* Main Layout Styling */
+    .main {{ background-color: #f8f9fa; }}
+    .stApp {{ background-image: linear-gradient(rgba(255,255,255,0.9), rgba(255,255,255,0.9)); }}
+    
+    /* Header Section */
+    .header-container {{
+        text-align: center;
+        padding: 40px;
+        background: #ffffff;
+        border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        margin-bottom: 30px;
+        border-bottom: 5px solid #ffcc00;
+    }}
+    .pspcl-logo-img {{ height: 140px; margin-bottom: 20px; transition: 0.5s; }}
+    .pspcl-logo-img:hover {{ transform: scale(1.05); }}
+    
+    /* Result Cards & Formulas */
+    .metric-card {{
+        background: white;
+        padding: 25px;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        border: 1px solid #eee;
+        transition: 0.3s;
+    }}
+    .metric-card:hover {{ transform: translateY(-5px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }}
+    
+    /* Footer Styling */
+    .footer-section {{
+        text-align: center;
+        margin-top: 80px;
+        padding: 60px 20px;
+        background-color: #ffffff;
+        border-top: 2px solid #f1f1f1;
+        border-radius: 30px 30px 0 0;
+    }}
+    .social-btn {{
+        width: 45px;
+        margin: 0 15px;
+        transition: transform 0.3s ease;
+        cursor: pointer;
+        filter: drop-shadow(0 2px 5px rgba(0,0,0,0.1));
+    }}
+    .social-btn:hover {{ transform: translateY(-10px) scale(1.2); }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER ---
+# ==========================================
+# 3. APP HEADER
+# ==========================================
 st.markdown(f"""
-<div class="header-box">
-    <img src="{FALLBACK_LOGO}" class="pspcl-main-logo" onerror="this.src='https://upload.wikimedia.org/wikipedia/en/3/3a/Punjab_State_Power_Corporation_Limited_logo.png'">
-    <h1 style="margin:0; color:#1a237e;">PUNJAB STATE POWER CORPORATION LIMITED</h1>
-    <h2 style="margin:5px; color:#444;">11kV Voltage Drop Calculator</h2>
+<div class="header-container">
+    <img src="{PSPCL_LOGO}" class="pspcl-logo-img">
+    <h1 style="color: #003366; font-family: 'Segoe UI', Tahoma; font-weight: 800;">PUNJAB STATE POWER CORPORATION LIMITED</h1>
+    <h2 style="color: #555; font-weight: 400; letter-spacing: 1px;">11kV Voltage Drop Calculator</h2>
 </div>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE ---
-if 'res_df' not in st.session_state: st.session_state.res_df = None
-if 'metrics' not in st.session_state: st.session_state.metrics = {}
-
-# --- SIDEBAR ---
+# ==========================================
+# 4. SIDEBAR & INPUTS
+# ==========================================
 with st.sidebar:
-    st.header("📝 Feeder Details")
-    f_name = st.text_input("Feeder Name", value="")
-    ss_name = st.text_input("Feeding Substation", value="")
-    s_div = st.text_input("Sub-Division", value="")
-    div = st.text_input("Division", value="")
+    st.image(PSPCL_LOGO, width=100)
+    st.title("⚙️ System Control")
     
-    st.divider()
-    st.header("⚡ Load Parameters")
-    mdi_a = st.number_input("Max Demand (MDI Amps)", min_value=0.0, step=0.1, value=0.0)
-    n_sec = st.number_input("Number of Sections", min_value=1, max_value=100, value=1)
-    mdi_k = round(np.sqrt(3) * 11 * mdi_a, 4)
-    st.info(f"Calculated MDI: {mdi_k} kVA")
+    with st.expander("📌 Feeder Identification", expanded=True):
+        feeder_name = st.text_input("Feeder Name", value="", help="Enter the 11kV Feeder Name")
+        sub_station = st.text_input("Feeding Substation", value="")
+        sub_division = st.text_input("Sub-Division Name", value="")
+        division_name = st.text_input("Division Name", value="")
+    
+    with st.expander("⚡ Electrical Parameters", expanded=True):
+        mdi_amps = st.number_input("Max Demand (MDI) in Amps", min_value=0.0, step=0.1, value=0.0)
+        num_sections = st.number_input("Total Network Sections", min_value=1, max_value=50, value=1)
+        # Power Calculation Formula
+        mdi_kva = round(np.sqrt(3) * 11 * mdi_amps, 4)
+        st.info(f"**Total MDI:** {mdi_kva} kVA")
+    
+    st.write("---")
+    st.caption(f"App Version: 2.4.0 | Date: {datetime.now().strftime('%d-%m-%Y')}")
 
-# --- DATA ENTRY ---
-st.subheader("📍 Network Configuration")
-pts = [f"{chr(65+i)}-{chr(66+i)}" for i in range(n_sec)]
-df_init = pd.DataFrame({
-    "SECTION": pts,
-    "CONDUCTOR SIZE": [None] * n_sec,
-    "LENGTH (KM)": [0.0] * n_sec,
-    "NODE LOAD (kVA)": [0.0] * n_sec
+# ==========================================
+# 5. DATA INPUT ENGINE
+# ==========================================
+st.subheader("📋 Sectional Configuration & Load Distribution")
+st.info("Tip: Start from the Source (A-B) and move towards the Tail node.")
+
+# Generate default labels
+labels = [f"{chr(65+i)}-{chr(66+i)}" for i in range(num_sections)]
+init_data = pd.DataFrame({
+    "SECTION": labels,
+    "CONDUCTOR TYPE": [None] * num_sections,
+    "DISTANCE (KM)": [0.0] * num_sections,
+    "NODE LOAD (kVA)": [0.0] * num_sections
 })
 
-ed_df = st.data_editor(
-    df_init,
+# Dynamic Data Editor
+edited_df = st.data_editor(
+    init_data,
     column_config={
-        "SECTION": st.column_config.TextColumn("Section", disabled=True),
-        "CONDUCTOR SIZE": st.column_config.SelectboxColumn("Conductor Type", options=list(VD_FACTORS.keys()), required=True),
-        "LENGTH (KM)": st.column_config.NumberColumn("Length (km)", format="%.3f"),
-        "NODE LOAD (kVA)": st.column_config.NumberColumn("Load at Node", format="%.1f")
+        "SECTION": st.column_config.TextColumn("Span ID", disabled=True),
+        "CONDUCTOR TYPE": st.column_config.SelectboxColumn("Conductor/Cable Size", options=list(VD_FACTORS.keys()), required=True),
+        "DISTANCE (KM)": st.column_config.NumberColumn("Length (km)", format="%.3f", min_value=0.0),
+        "NODE LOAD (kVA)": st.column_config.NumberColumn("Load at Node (kVA)", format="%.1f", min_value=0.0)
     },
-    use_container_width=True, num_rows="fixed"
+    use_container_width=True,
+    num_rows="fixed"
 )
 
-# --- CALCULATION LOGIC ---
-c1, c2, c3 = st.columns(3)
+# ==========================================
+# 6. CALCULATION CORE (BACKEND LOGIC)
+# ==========================================
+if 'res_cache' not in st.session_state: st.session_state.res_cache = None
+if 'met_cache' not in st.session_state: st.session_state.met_cache = {}
 
-if c1.button("🚀 Calculate Voltage Drop", type="primary", use_container_width=True):
-    df = ed_df.copy()
-    if not df["CONDUCTOR SIZE"].isnull().any():
-        # Cumulative Load (Tail to Source)
-        node_loads = df["NODE LOAD (kVA)"].tolist()
-        cum_loads = [0] * len(node_loads)
-        temp_sum = 0
-        for i in range(len(node_loads)-1, -1, -1):
-            temp_sum += node_loads[i]
-            cum_loads[i] = temp_sum
+col_btn1, col_btn2, col_btn3 = st.columns(3)
+
+def perform_calculations():
+    with st.spinner("Processing network harmonics and loads..."):
+        time.sleep(0.5) # UI Smoothness
+        df = edited_df.copy()
+        
+        # 1. Reverse Summation for Cumulative Load (Tail-to-Source)
+        loads = df["NODE LOAD (kVA)"].tolist()
+        cum_loads = [0] * len(loads)
+        running_sum = 0
+        for i in range(len(loads)-1, -1, -1):
+            running_sum += loads[i]
+            cum_loads[i] = running_sum
             
         df["CUMULATIVE LOAD (kVA)"] = cum_loads
-        df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS)
-        df["SECTION VD (V)"] = df["LENGTH (KM)"] * df["CUMULATIVE LOAD (kVA)"] * df["VD FACTOR"]
+        df["VD FACTOR"] = df["CONDUCTOR TYPE"].map(VD_FACTORS)
         
-        t_vd_sum = df["SECTION VD (V)"].sum()
-        max_ld = cum_loads[0] if cum_loads else 0
-        df_v = mdi_k / max_ld if max_ld > 0 else 0
-        a_vd_v = t_vd_sum * df_v
-        v_per = (a_vd_v / (11000 - a_vd_v) * 100) if (11000 - a_vd_v) > 0 else 0
+        # 2. Sectional VD Calculation (Voltage = L * I * Factor)
+        df["SECTION VD (V)"] = df["DISTANCE (KM)"] * df["CUMULATIVE LOAD (kVA)"] * df["VD FACTOR"]
         
-        st.session_state.res_df = df
-        st.session_state.metrics = {"t_vd": t_vd_sum, "max_ld": max_ld, "df_v": df_v, "a_vd_v": a_vd_v, "v_per": v_per}
-    else:
-        st.error("Please select Conductor for all sections.")
-
-if st.session_state.res_df is not None:
-    res = st.session_state.res_df
-    m = st.session_state.metrics
-    
-    st.subheader("📊 Calculation Results")
-    st.dataframe(res, use_container_width=True)
-    
-    st.markdown('<div class="formula-section">', unsafe_allow_html=True)
-    f_col1, f_col2, f_col3 = st.columns(3)
-    with f_col1:
-        st.latex(r"D.F. = \frac{MDI(kVA)}{Total\ kVA}")
-        st.metric("Demand Factor", f"{m['df_v']:.4f}")
-    with f_col2:
-        st.latex(r"Actual\ VD(V) = \sum VD \times DF")
-        st.metric("Actual VD", f"{m['a_vd_v']:.2f} V")
-    with f_col3:
-        st.latex(r"\% VD = \frac{VD}{11000-VD} \times 100")
-        st.metric("Voltage Drop", f"{m['v_per']:.3f} %")
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# --- SKETCH & PDF EXPORT ---
-if c2.button("🎨 Generate Sketch & Export PDF", use_container_width=True):
-    if st.session_state.res_df is not None:
-        res = st.session_state.res_df
-        m = st.session_state.metrics
+        # 3. Final Aggregation
+        total_sum_vd = df["SECTION VD (V)"].sum()
+        max_source_load = cum_loads[0] if cum_loads else 0
+        demand_f = mdi_kva / max_source_load if max_source_load > 0 else 0
+        actual_vd_volts = total_sum_vd * demand_f
+        final_percent = (actual_vd_volts / (11000 - actual_vd_volts) * 100) if (11000 - actual_vd_volts) > 0 else 0
         
-        # 1. Show Sketch in App
-        dot = graphviz.Digraph()
-        dot.attr(rankdir='BT')
-        dot.node('S', f'{ss_name}\n(Source)\n{m["max_ld"]} kVA', shape='house', style='filled', fillcolor='gold')
-        
-        prev = 'S'
-        for i, r in res.iterrows():
-            nid = f"N{i}"
-            is_c = "CABLE" in r['CONDUCTOR SIZE'].upper()
-            dot.node(nid, r['SECTION'].split('-')[-1], shape='box' if is_c else 'circle', style='filled', fillcolor='#e3f2fd')
-            dot.edge(nid, prev, label=f"{r['CONDUCTOR SIZE']}\n{r['LENGTH (KM)']}km", color='red' if is_c else 'black')
-            prev = nid
-        
-        st.graphviz_chart(dot)
-        
-        # 2. PDF Generation
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", 'B', 16)
-        pdf.cell(190, 10, "PSPCL 11kV VOLTAGE DROP REPORT", ln=True, align='C')
-        pdf.ln(5)
-        
-        pdf.set_font("Arial", '', 11)
-        pdf.cell(95, 8, f"Feeder: {f_name}")
-        pdf.cell(95, 8, f"Sub-Division: {s_div}", ln=True)
-        pdf.cell(95, 8, f"Substation: {ss_name}")
-        pdf.cell(95, 8, f"Division: {div}", ln=True)
-        pdf.ln(5)
-        
-        # Table
-        pdf.set_font("Arial", 'B', 10)
-        pdf.set_fill_color(230, 230, 230)
-        pdf.cell(25, 10, "Section", 1, 0, 'C', True)
-        pdf.cell(55, 10, "Conductor", 1, 0, 'C', True)
-        pdf.cell(25, 10, "Length", 1, 0, 'C', True)
-        pdf.cell(40, 10,
+        st.session_state.res_cache = df
+        st.session_state.met_cache = {
+            "sum_vd": total_sum_vd, "max_load": max_source_load, "df": demand_f,
+            "actual_
