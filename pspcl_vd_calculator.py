@@ -1,140 +1,148 @@
 import streamlit as st
 import pandas as pd
 import math
+import matplotlib.pyplot as plt
+from io import BytesIO
 
-st.set_page_config(page_title="PSPCL VD Calculator", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="PSPCL VD Tool FINAL", page_icon="⚡", layout="wide")
 
-# ------------------ STYLE ------------------
-st.markdown("""
-<style>
-.main {background: linear-gradient(135deg, #0f172a, #1e40af);}
-h1 {color: #60a5fa; text-align: center;}
-.footer {text-align: center; margin-top: 50px; color: #94a3b8;}
-.made-with {font-size: 1.5rem; margin: 25px 0;}
-</style>
-""", unsafe_allow_html=True)
+st.title("⚡ PSPCL 11kV Voltage Drop Calculator – FINAL TOOL")
 
-st.title("⚡ PSPCL 11kV Voltage Drop Calculator")
-
-# ------------------ INPUT ------------------
-col1, col2 = st.columns([3,1])
-
-with col1:
-    feeder_name = st.text_input("Feeder Name", "11kV Feeder")
-
-with col2:
-    md_kva = st.number_input("Maximum Demand (kVA)", value=1000.0, step=50.0)
-
-# ------------------ CONDUCTOR DATA ------------------
-conductors = {
-    "ACSR Weasel": {"R": 1.0209, "X": 0.382},
-    "ACSR Rabbit": {"R": 0.6103, "X": 0.372},
-    "ACSR Raccoon": {"R": 0.3712, "X": 0.30},
-    "ACSR Dog": {"R": 0.2792, "X": 0.29},
-    "XLPE 300 Sqmm": {"R": 0.126, "X": 0.10},
-    "XLPE 400 Sqmm": {"R": 0.0997, "X": 0.0977}
+# ---------------- VD FACTORS ----------------
+vd_factors = {
+    "ACSR 13": 0.1333,
+    "ACSR 20/30": 0.0991,
+    "ACSR 30/50": 0.0662,
+    "ACSR 48/80": 0.0499,
+    "ACSR 65/100": 0.0415,
+    "XLPE 300": 0.0142,
+    "XLPE 150": 0.0257,
+    "XLPE 35": 0.0948
 }
 
-# ------------------ BRANCH INPUT ------------------
-num = st.number_input("Number of Sections", min_value=1, max_value=20, value=1)
+# ---------------- FUNCTION ----------------
+def calculate_vd(df, md_amp, total_kva):
+    total_vd = 0
+    vd_list = []
+    dist_cum = []
 
-st.subheader("Section-wise Input")
+    cum_dist = 0
 
-sections = []
-total_load = 0
+    for i, row in df.iterrows():
+        vd = row["Length"] * row["Load"] * row["VD Factor"]
+        total_vd += vd
+        cum_dist += row["Length"]
 
-for i in range(num):
-    st.markdown(f"### Section {chr(65+i)} → {chr(66+i)}")
-    
-    c1, c2, c3 = st.columns(3)
+        vd_list.append(total_vd)
+        dist_cum.append(cum_dist)
 
-    with c1:
-        cond = st.selectbox("Conductor", list(conductors.keys()), key=i)
+    df_val = (math.sqrt(3) * 11 * md_amp) / total_kva
+    actual_vd = total_vd * df_val
+    percent_vd = (actual_vd / (11000 - actual_vd)) * 100
 
-    with c2:
-        length = st.number_input("Length (km)", value=0.5, step=0.1, key=f"l{i}")
+    return total_vd, actual_vd, percent_vd, vd_list, dist_cum
 
-    with c3:
-        load = st.number_input("Load at this point (kVA)", value=100.0, step=10.0, key=f"ld{i}")
+# ---------------- FILE UPLOAD ----------------
+st.header("📂 Upload Feeder Data")
 
-    sections.append({
-        "cond": cond,
-        "length": length,
-        "load": load
+file = st.file_uploader("Upload Excel (Your Format)", type=["xlsx"])
+
+md_amp = st.number_input("Maximum Demand (Amp)", value=100.0)
+total_kva = st.number_input("Total Connected Load (kVA)", value=1000.0)
+
+if file:
+    df = pd.read_excel(file)
+
+    st.subheader("📊 Raw Data")
+    st.dataframe(df)
+
+    # Auto column detection
+    cols = df.columns.str.lower()
+
+    length_col = [c for c in df.columns if "length" in c.lower()][0]
+    load_col = [c for c in df.columns if "load" in c.lower()][0]
+    vd_col = [c for c in df.columns if "vd" in c.lower()][0]
+
+    df_calc = pd.DataFrame({
+        "Length": df[length_col],
+        "Load": df[load_col],
+        "VD Factor": df[vd_col]
     })
 
-# ------------------ CALCULATION ------------------
-pf = 0.85
-sin_phi = math.sin(math.acos(pf))
+    # ---------------- CALCULATE ----------------
+    total_vd, actual_vd, percent_vd, vd_list, dist = calculate_vd(df_calc, md_amp, total_kva)
 
-remaining_load = md_kva
-data = []
-total_vd = 0
+    st.success(f"Actual VD = {actual_vd:.2f} V")
+    st.success(f"% Voltage Drop = {percent_vd:.2f}%")
 
-for i, sec in enumerate(sections):
+    # ---------------- GRAPH ----------------
+    st.subheader("📈 Voltage Profile")
 
-    r = conductors[sec["cond"]]["R"]
-    x = conductors[sec["cond"]]["X"]
+    fig, ax = plt.subplots()
+    ax.plot(dist, vd_list)
+    ax.set_xlabel("Distance (km)")
+    ax.set_ylabel("Voltage Drop (Volts)")
+    ax.set_title("VD Profile")
+    st.pyplot(fig)
 
-    current = (remaining_load * 1000) / (math.sqrt(3) * 11000)
+    # ---------------- SUGGESTION ----------------
+    st.subheader("🧠 Smart Suggestion")
 
-    vd = (math.sqrt(3) * current * sec["length"] * (r * pf + x * sin_phi) * 100) / 11000
+    if percent_vd > 5:
+        st.error("❌ VD High → Suggest Bifurcation / Conductor Upgrade")
+    else:
+        st.success("✅ System within limits")
 
-    total_vd += vd
-
-    data.append({
-        "Section": f"{chr(65+i)}-{chr(66+i)}",
-        "Conductor": sec["cond"],
-        "Length (km)": sec["length"],
-        "Load Flow (kVA)": round(remaining_load,2),
-        "R": r,
-        "X": x,
-        "Current (A)": round(current,2),
-        "VD %": round(vd,3),
-        "Formula Used": f"√3×{round(current,1)}×{sec['length']}×({r}×0.85 + {x}×{round(sin_phi,2)})"
+    # ---------------- REPORT ----------------
+    output = BytesIO()
+    report = pd.DataFrame({
+        "Total VD": [total_vd],
+        "Actual VD": [actual_vd],
+        "%VD": [percent_vd]
     })
 
-    # Reduce load for next branch
-    remaining_load -= sec["load"]
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name="Input")
+        report.to_excel(writer, sheet_name="Result")
 
-# ------------------ OUTPUT ------------------
-df = pd.DataFrame(data)
-st.dataframe(df, use_container_width=True)
+    st.download_button("📥 Download Report", output.getvalue(), "PSPCL_VD_Report.xlsx")
 
-st.success(f"Total Voltage Drop = {total_vd:.2f} %")
+# ---------------- COMPARISON TOOL ----------------
+st.header("🔁 Before vs After Comparison")
 
-if total_vd <= 5:
-    st.success("✅ Within Limit")
-elif total_vd <= 9:
-    st.warning("⚠️ Acceptable")
-else:
-    st.error("❌ Exceeds Limit")
+file1 = st.file_uploader("Upload BEFORE Excel", type=["xlsx"], key="b")
+file2 = st.file_uploader("Upload AFTER Excel", type=["xlsx"], key="a")
 
-# ------------------ SKETCH ------------------
-st.subheader("📍 Feeder Sketch")
+if file1 and file2:
+    df1 = pd.read_excel(file1)
+    df2 = pd.read_excel(file2)
 
-sketch = "Substation (11kV)"
-for i, row in df.iterrows():
-    sketch += f" → [{row['Section']} | {row['Load Flow (kVA)']} kVA]"
-sketch += " → End"
+    # simple VD compare (assumes same format)
+    vd1 = df1.iloc[:, -1].sum()
+    vd2 = df2.iloc[:, -1].sum()
 
-st.code(sketch)
+    st.write(f"Before VD: {vd1}")
+    st.write(f"After VD: {vd2}")
 
-# ------------------ FOOTER ------------------
+    fig, ax = plt.subplots()
+    ax.bar(["Before", "After"], [vd1, vd2])
+    st.pyplot(fig)
+
+# ---------------- SKETCH ----------------
+st.header("🗺️ Auto Feeder Sketch")
+
+if st.button("Generate Sketch"):
+    sketch = "🔌 Substation"
+    for i in range(10):
+        sketch += f" → {chr(65+i)}"
+    sketch += " → End"
+    st.code(sketch)
+
+# ---------------- FOOTER ----------------
 st.markdown("---")
 st.markdown("""
-<div class="footer">
-    <div class="made-with">
-        Made with ❤️ by <strong>@iamanujnarang</strong>
-    </div>
-    <p>
-        <a href="https://facebook.com/iamanujnarang" target="_blank">Facebook</a> |
-        <a href="https://instagram.com/iamanujnarang" target="_blank">Instagram</a> |
-        <a href="https://x.com/iamanujnarang" target="_blank">X</a> |
-        <a href="https://linkedin.com/in/iamanujnarang" target="_blank">LinkedIn</a>
-    </p>
-    <p>
-        Powered by <a href="https://beeclue.com/" target="_blank">Beeclue Tech</a>
-    </p>
+<div style="text-align:center;">
+Made with ❤️ by <b>@iamanujnarang</b><br>
+Powered by Beeclue Tech
 </div>
 """, unsafe_allow_html=True)
