@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
-import graphviz # Sketch banane ke liye
+import graphviz
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="PSPCL VD Calculator Pro", page_icon="⚡", layout="wide")
@@ -20,36 +20,27 @@ VD_FACTORS = {
     "XLPE CABLE 150 SQMM": 0.0285, "XLPE CABLE 35 SQMM": 0.1150
 }
 
-# --- STYLING WITH HOVER EFFECTS ---
+# --- STYLING ---
 st.markdown(f"""
 <style>
     .header-box {{ text-align: center; padding: 25px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 25px; border-top: 6px solid #ffcc00; }}
     .formula-section {{ background: #ffffff; padding: 30px; border-radius: 15px; border: 1px solid #dee2e6; margin-top: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }}
-    .sketch-section {{ background: #fdfdfd; padding: 20px; border-radius: 15px; border: 1px dashed #ccc; margin-top: 20px; }}
+    .sketch-section {{ background: #fdfdfd; padding: 20px; border-radius: 15px; border: 2px solid #eee; margin-top: 20px; text-align: center; }}
     .footer-container {{ text-align: center; margin-top: 60px; padding: 40px; border-top: 1px solid #eee; background: #fdfdfd; }}
-    
-    .social-logo {{ 
-        width: 35px; 
-        margin: 0 15px; 
-        transition: transform 0.3s ease-in-out, filter 0.3s ease-in-out; 
-        cursor: pointer;
-    }}
-    .social-logo:hover {{ 
-        transform: scale(1.3); 
-        filter: brightness(1.2); 
-    }}
-    
+    .social-logo {{ width: 35px; margin: 0 15px; transition: transform 0.3s ease-in-out; cursor: pointer; }}
+    .social-logo:hover {{ transform: scale(1.3); }}
     .stMetric {{ background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #eee; }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER (Professional word removed) ---
+# --- HEADER ---
 st.markdown(f'<div class="header-box"><img src="{PSPCL_LOGO}" width="100"><h1>PUNJAB STATE POWER CORPORATION LIMITED</h1><h3>11kV Voltage Drop Calculation Tool</h3></div>', unsafe_allow_html=True)
 
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("📝 Feeder Details")
     feeder_name = st.text_input("Feeder Name", placeholder="e.g. 11kV Mall Mandi")
+    substation_name = st.text_input("Feeding Substation", placeholder="e.g. 66kV Mall Mandi")
     sub_div = st.text_input("Sub-Division", placeholder="e.g. Mall Mandi")
     div = st.text_input("Division", placeholder="e.g. City Center")
     
@@ -61,8 +52,9 @@ with st.sidebar:
     mdi_kva = round(np.sqrt(3) * 11 * mdi_amps, 4)
     st.success(f"MDI in kVA: {mdi_kva}")
 
-# --- DATA EDITOR ---
+# --- DATA EDITOR (FIXED SECTION LOGIC) ---
 st.subheader("📍 Step 1: Sectional Data Entry")
+# Generate labels A-B, B-C, etc. based strictly on num_sections
 points = [f"{chr(65+i)}-{chr(66+i)}" for i in range(num_sections)]
 
 df_input = pd.DataFrame({
@@ -75,127 +67,128 @@ df_input = pd.DataFrame({
 edited_df = st.data_editor(
     df_input,
     column_config={
-        "POINT": st.column_config.TextColumn("Section", disabled=False), # Enabled in case user adds rows manually
+        "POINT": st.column_config.TextColumn("Section", disabled=True),
         "CONDUCTOR SIZE": st.column_config.SelectboxColumn("Conductor Type", options=list(VD_FACTORS.keys()), required=True),
         "DISTANCE (KM)": st.column_config.NumberColumn("Length (km)", format="%.3f", min_value=0.0),
         "SECTION LOAD (kVA)": st.column_config.NumberColumn("Tapping Load (kVA)", format="%.1f", min_value=0.0)
     },
     use_container_width=True,
-    num_rows="dynamic"
+    num_rows="fixed" # Prevents extra ghost rows
 )
 
+# Initialize Session State for dataframe to persist between button clicks
+if 'calculated_df' not in st.session_state:
+    st.session_state.calculated_df = None
+
 # --- CALCULATIONS ---
-if st.button("🚀 Calculate & Generate Sketch", type="primary"):
-    # Filter valid rows (skip if point or conductor size is missing)
-    df = edited_df.dropna(subset=["POINT", "CONDUCTOR SIZE"]).copy()
+col_calc, col_sketch = st.columns([1, 1])
+
+with col_calc:
+    calc_trigger = st.button("🚀 Calculate Voltage Drop", type="primary", use_container_width=True)
+
+with col_sketch:
+    sketch_trigger = st.button("🎨 Generate Feeder Sketch", use_container_width=True)
+
+if calc_trigger:
+    df = edited_df.copy()
+    loads = df["SECTION LOAD (kVA)"].fillna(0).tolist()
+    upto_loads = [0] * len(loads)
+    temp_sum = 0
+    for i in range(len(loads)-1, -1, -1):
+        temp_sum += loads[i]
+        upto_loads[i] = temp_sum
     
-    if df.empty:
-        st.error("Please enter valid section data first.")
+    df["UPTO LOAD (kVA)"] = upto_loads
+    df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
+    df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
+    
+    st.session_state.calculated_df = df
+    st.session_state.totals = {
+        "len": df["DISTANCE (KM)"].sum(),
+        "load": df["SECTION LOAD (kVA)"].sum(),
+        "vd": df["VD (VOLTS)"].sum(),
+        "source_kva": upto_loads[0] if upto_loads else 0
+    }
+
+# --- DISPLAY RESULTS ---
+if st.session_state.calculated_df is not None:
+    df = st.session_state.calculated_df
+    totals = st.session_state.totals
+    
+    # 1. Calculation Table
+    summary_row = pd.DataFrame({
+        "POINT": ["**GRAND TOTAL**"], "CONDUCTOR SIZE": ["-"], "DISTANCE (KM)": [totals['len']],
+        "SECTION LOAD (kVA)": [totals['load']], "UPTO LOAD (kVA)": [0.0], "VD (VOLTS)": [totals['vd']]
+    })
+    st.dataframe(pd.concat([df, summary_row], ignore_index=True), use_container_width=True)
+
+    # 2. Formula Summary
+    df_val = mdi_kva / totals['source_kva'] if totals['source_kva'] > 0 else 0
+    actual_vd_v = totals['vd'] * df_val
+    vd_percent = (actual_vd_v / (11000 - actual_vd_v) * 100) if (11000 - actual_vd_v) > 0 else 0
+
+    st.markdown('<div class="formula-section">', unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Demand Factor", f"{df_val:.4f}")
+    c2.metric("Actual VD", f"{actual_vd_v:.2f} Volts")
+    c3.metric("Final % VD", f"{vd_percent:.3f}%")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# --- SKETCH LOGIC ---
+if sketch_trigger:
+    if st.session_state.calculated_df is None:
+        st.warning("Pehle 'Calculate Voltage Drop' par click karein!")
     else:
-        # Logic: Tail to Source Cumulative Load
-        loads = df["SECTION LOAD (kVA)"].fillna(0).tolist()
-        upto_loads = [0] * len(loads)
-        temp_sum = 0
-        for i in range(len(loads)-1, -1, -1):
-            temp_sum += loads[i]
-            upto_loads[i] = temp_sum
-        
-        df["UPTO LOAD (kVA)"] = upto_loads
-        df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
-        df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
-        
-        total_len = df["DISTANCE (KM)"].sum()
-        total_section_load = df["SECTION LOAD (kVA)"].sum()
-        total_vd_volts = df["VD (VOLTS)"].sum()
-        total_load_at_source = upto_loads[0] if len(upto_loads) > 0 else 0
-        
-        df_val = mdi_kva / total_load_at_source if total_load_at_source > 0 else 0
-        actual_vd_v = total_vd_volts * df_val
-        denom = (11000 - actual_vd_v)
-        vd_percent = (actual_vd_v / denom * 100) if denom > 0 else 0
-
-        # --- TABLE ENHANCEMENT: GRAND TOTAL ROW ---
-        summary_row = pd.DataFrame({
-            "POINT": ["**GRAND TOTAL**"], "CONDUCTOR SIZE": ["-"], "DISTANCE (KM)": [total_len],
-            "SECTION LOAD (kVA)": [total_section_load], "UPTO LOAD (kVA)": [0.0],
-            "VD FACTOR": [0.0], "VD (VOLTS)": [total_vd_volts]
-        })
-        df_display = pd.concat([df, summary_row], ignore_index=True)
-
-        # --- FEEDER SKETCH GENERATION (Fixed AttributeError) ---
-        st.divider()
-        st.subheader(f"🎨 Feeder Sketch: {feeder_name if feeder_name else '11kV Feeder'}")
+        df = st.session_state.calculated_df
+        st.subheader("🎨 Dynamic Feeder Sketch")
         st.markdown('<div class="sketch-section">', unsafe_allow_html=True)
         
         dot = graphviz.Digraph(comment='Feeder Sketch')
-        dot.attr(rankdir='BT') # Bottom to Top (Tail at bottom, SS at top)
+        dot.attr(rankdir='BT') 
         
-        ss_label = f"SUBSTATION\n{sub_div}\n({total_load_at_source} kVA Total)"
-        dot.node('SS', ss_label, shape='box', style='filled', fillcolor='gold')
+        # Substation Node
+        ss_name = substation_name if substation_name else "SUBSTATION"
+        dot.node('SS', f' {ss_name} \n (Source) ', shape='house', style='filled', fillcolor='gold')
         
         previous_node = 'SS'
-        
-        # Iterate only original data rows
         for i, row in df.iterrows():
             node_id = f"P{i}"
-            # AttributeError fix: handle if POINT is None or empty
-            raw_point = str(row['POINT']) if row['POINT'] else f"Point {i}"
-            point_name = raw_point.split('-')[-1] if '-' in raw_point else raw_point
+            point_name = row['POINT'].split('-')[-1]
+            cond_size = row['CONDUCTOR SIZE']
             
-            edge_label = f"{row['DISTANCE (KM)']} km\n{row['SECTION LOAD (kVA)']} kVA Load\n(Cum: {row['UPTO LOAD (kVA)']} kVA)"
+            # Identify if Cable or Conductor
+            is_cable = "CABLE" in cond_size.upper()
             
-            dot.node(node_id, point_name, shape='circle', style='filled', fillcolor='lightblue')
-            dot.edge(node_id, previous_node, label=edge_label, color='red', penwidth='2.0')
+            # Label for the arrow/line
+            edge_label = (f"{row['DISTANCE (KM)']} km\n"
+                          f"{cond_size}\n"
+                          f"Sec VD: {row['VD (VOLTS)']:.2f} V\n"
+                          f"Cum Load: {row['UPTO LOAD (kVA)']} kVA")
+            
+            # Styling: Cable = Double Circle Node or Coil-like feel, Conductor = Single
+            node_shape = 'doublecircle' if is_cable else 'circle'
+            dot.node(node_id, point_name, shape=node_shape, style='filled', fillcolor='aliceblue')
+            
+            # Line style: Cables can be dashed to look different
+            line_style = 'solid' if not is_cable else 'dashed'
+            dot.edge(node_id, previous_node, label=edge_label, color='red', style=line_style, penwidth='2.0')
             
             previous_node = node_id
-
+            
         st.graphviz_chart(dot)
+        st.caption("Note: Dashed lines represent Cables, Solid lines represent ACSR Conductors.")
         st.markdown('</div>', unsafe_allow_html=True)
-
-        # --- DISPLAY CALCULATION TABLE ---
-        st.subheader("📊 Step 2: Voltage Drop Analysis Table")
-        st.dataframe(df_display.style.format({
-            "DISTANCE (KM)": "{:.3f}", "SECTION LOAD (kVA)": "{:.1f}",
-            "UPTO LOAD (kVA)": "{:.2f}", "VD (VOLTS)": "{:.4f}"
-        }), use_container_width=True)
-
-        # --- FORMULAS & FINAL RESULTS ---
-        st.markdown('<div class="formula-section">', unsafe_allow_html=True)
-        st.subheader("🧮 Applied Formulas & Final Summary")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.info("1. Demand Factor (D.F.)")
-            st.latex(r"D.F. = \frac{\sqrt{3} \times 11 \times MDI(A)}{Total\ kVA}")
-            st.metric("Result (D.F.)", f"{df_val:.4f}")
-        with c2:
-            st.info("2. Actual Voltage Drop")
-            st.latex(r"Actual\ V.D. = Total\ V.D. \times D.F.")
-            st.metric("Actual VD", f"{actual_vd_v:.2f} Volts")
-        with c3:
-            st.info("3. Percentage Voltage Drop")
-            st.latex(r"\% V.D. = \frac{Actual\ V.D.}{11000 - Actual\ V.D.} \times 100")
-            st.metric("Final % VD", f"{vd_percent:.3f}%")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        # --- EXPORT ---
-        csv_report = io.StringIO()
-        csv_report.write(f"OFFICIAL REPORT: {feeder_name}\n")
-        df_display.to_csv(csv_report, index=False)
-        st.download_button("📥 Download Official CSV Report", csv_report.getvalue(), f"{feeder_name}_Report.csv", "text/csv")
-
-else:
-    st.warning("Please fill the data and click 'Calculate & Generate Sketch'.")
 
 # --- FOOTER ---
 st.markdown(f"""
 <div class="footer-container">
-    <p style="font-size:1.2em; font-weight:bold; color:#333;">Made with ❤️ by Anuj Narang</p>
+    <p style="font-size:1.2em; font-weight:bold;">Made with ❤️ by Anuj Narang</p>
     <div style="margin: 25px 0;">
-        <a href="https://instagram.com/iamanujnarang" target="_blank"><img src="{INSTA_ICON}" class="social-logo"></a>
-        <a href="https://facebook.com/iamanujnarang" target="_blank"><img src="{FB_ICON}" class="social-logo"></a>
-        <a href="https://x.com/iamanujnarang" target="_blank"><img src="{X_ICON}" class="social-logo"></a>
-        <a href="https://linkedin.com/in/iamanujnarang" target="_blank"><img src="{LINKEDIN_ICON}" class="social-logo"></a>
+        <a href="https://instagram.com/iamanujnarang"><img src="{INSTA_ICON}" class="social-logo"></a>
+        <a href="https://facebook.com/iamanujnarang"><img src="{FB_ICON}" class="social-logo"></a>
+        <a href="https://x.com/iamanujnarang"><img src="{X_ICON}" class="social-logo"></a>
+        <a href="https://linkedin.com/in/iamanujnarang"><img src="{LINKEDIN_ICON}" class="social-logo"></a>
     </div>
-    <p style="color:#666;">Powered by <a href="https://beeclue.com" target="_blank" style="color:#004a99; text-decoration:none; font-weight:bold;">Beeclue Tech</a></p>
+    <p>Powered by <b>Beeclue Tech</b></p>
 </div>
 """, unsafe_allow_html=True)
