@@ -4,12 +4,17 @@ import numpy as np
 import io
 import graphviz
 from fpdf import FPDF
+import base64
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="PSPCL VD Calculator Pro", page_icon="⚡", layout="wide")
 
 # --- CONSTANTS & ASSETS ---
-PSPCL_LOGO = "https://pspcl.in/assets/images/logo.png"
+# Direct link to a stable PSPCL logo source
+PSPCL_LOGO = "https://raw.githubusercontent.com/iamanujnarang/assets/main/pspcl_logo.png" 
+# Note: Agar upar wala link na chale toh niche wala fallback hai
+FALLBACK_LOGO = "https://pspcl.in/assets/images/logo.png"
+
 INSTA_ICON = "https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
 FB_ICON = "https://upload.wikimedia.org/wikipedia/commons/1/1b/Facebook_icon.svg"
 X_ICON = "https://upload.wikimedia.org/wikipedia/commons/b/b7/X_logo.jpg"
@@ -22,222 +27,156 @@ VD_FACTORS = {
     "XLPE CABLE 150 SQMM": 0.0285, "XLPE CABLE 35 SQMM": 0.1150
 }
 
-# --- STYLING (The Custom CSS) ---
+# --- STYLING ---
 st.markdown(f"""
 <style>
-    .header-box {{ text-align: center; padding: 35px; background: white; border-radius: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); margin-bottom: 30px; border-top: 10px solid #ffcc00; }}
-    .pspcl-main-logo {{ width: 220px; margin-bottom: 20px; }}
-    .formula-section {{ background: #ffffff; padding: 35px; border-radius: 15px; border: 1px solid #e0e0e0; margin-top: 35px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }}
-    .footer-container {{ text-align: center; margin-top: 80px; padding: 60px; border-top: 2px solid #f0f0f0; background: #fafafa; }}
-    .social-logo {{ width: 45px; margin: 0 18px; transition: transform 0.4s ease; cursor: pointer; }}
-    .social-logo:hover {{ transform: scale(1.4) rotate(5deg); }}
-    .beeclue-footer-logo {{ width: 140px; margin-top: 15px; filter: grayscale(20%); }}
-    .calculation-step {{ font-family: 'Courier New', monospace; color: #2e7d32; font-weight: bold; font-size: 1.1em; }}
+    .header-box {{ text-align: center; padding: 25px; background: #ffffff; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 25px; border-top: 8px solid #ffcc00; }}
+    .pspcl-main-logo {{ height: 120px; width: auto; margin-bottom: 15px; }}
+    .formula-section {{ background: #ffffff; padding: 30px; border-radius: 15px; border: 1px solid #dee2e6; margin-top: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }}
+    .footer-container {{ text-align: center; margin-top: 60px; padding: 40px; border-top: 1px solid #eee; background: #fdfdfd; }}
+    .social-logo {{ width: 35px; margin: 0 10px; transition: 0.3s; cursor: pointer; }}
+    .social-logo:hover {{ transform: scale(1.3); }}
+    .beeclue-footer-logo {{ width: 120px; margin-top: 15px; }}
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER SECTION ---
+# --- HEADER ---
 st.markdown(f"""
 <div class="header-box">
-    <img src="{PSPCL_LOGO}" class="pspcl-main-logo">
-    <h1 style="color: #1a237e; margin: 0;">PUNJAB STATE POWER CORPORATION LIMITED</h1>
-    <h3 style="color: #555;">Advanced 11kV Voltage Drop Calculation Engine</h3>
+    <img src="{FALLBACK_LOGO}" class="pspcl-main-logo" onerror="this.src='https://upload.wikimedia.org/wikipedia/en/3/3a/Punjab_State_Power_Corporation_Limited_logo.png'">
+    <h1 style="margin:0; color:#1a237e;">PUNJAB STATE POWER CORPORATION LIMITED</h1>
+    <h2 style="margin:5px; color:#444;">11kV Voltage Drop Calculator</h2>
 </div>
 """, unsafe_allow_html=True)
 
-# --- INITIALIZE SESSION STATE ---
-if 'calc_data' not in st.session_state: st.session_state.calc_data = None
+# --- SESSION STATE ---
+if 'res_df' not in st.session_state: st.session_state.res_df = None
 if 'metrics' not in st.session_state: st.session_state.metrics = {}
 
-# --- SIDEBAR (Clean & Empty Defaults) ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.header("📋 Technical Inputs")
-    feeder_name = st.text_input("Feeder Name", placeholder="e.g. 11kV Cantt")
-    substation_name = st.text_input("Feeding Substation", placeholder="e.g. 66kV Mall Mandi")
-    sub_div = st.text_input("Sub-Division Name", placeholder="e.g. South Sub-Division")
-    division = st.text_input("Division Name", placeholder="e.g. City Division")
+    st.header("📝 Feeder Details")
+    f_name = st.text_input("Feeder Name", value="")
+    ss_name = st.text_input("Feeding Substation", value="")
+    s_div = st.text_input("Sub-Division", value="")
+    div = st.text_input("Division", value="")
     
     st.divider()
-    mdi_amps = st.number_input("Max Demand (MDI in Amps)", min_value=0.0, step=0.1, value=0.0)
-    num_sections = st.number_input("Number of Sections", min_value=1, max_value=50, value=1)
-    
-    # Fundamental Calc
-    mdi_kva = round(np.sqrt(3) * 11 * mdi_amps, 4)
-    st.info(f"**Calculated MDI:** {mdi_kva} kVA")
+    st.header("⚡ Load Parameters")
+    mdi_a = st.number_input("Max Demand (MDI Amps)", min_value=0.0, step=0.1, value=0.0)
+    n_sec = st.number_input("Number of Sections", min_value=1, max_value=100, value=1)
+    mdi_k = round(np.sqrt(3) * 11 * mdi_a, 4)
+    st.info(f"Calculated MDI: {mdi_k} kVA")
 
-# --- STEP 1: DATA GRID ---
-st.subheader("📍 Step 1: Define Network Topology")
-section_points = [f"{chr(65+i)}-{chr(66+i)}" for i in range(num_sections)]
-df_template = pd.DataFrame({
-    "SECTION": section_points,
-    "CONDUCTOR": [None] * num_sections,
-    "LENGTH (KM)": [0.0] * num_sections,
-    "TAPPING LOAD (kVA)": [0.0] * num_sections
+# --- DATA ENTRY ---
+st.subheader("📍 Network Configuration")
+pts = [f"{chr(65+i)}-{chr(66+i)}" for i in range(n_sec)]
+df_init = pd.DataFrame({
+    "SECTION": pts,
+    "CONDUCTOR SIZE": [None] * n_sec,
+    "LENGTH (KM)": [0.0] * n_sec,
+    "NODE LOAD (kVA)": [0.0] * n_sec
 })
 
-edited_df = st.data_editor(
-    df_template,
+ed_df = st.data_editor(
+    df_init,
     column_config={
-        "SECTION": st.column_config.TextColumn("Point-to-Point", disabled=True),
-        "CONDUCTOR": st.column_config.SelectboxColumn("Conductor Type", options=list(VD_FACTORS.keys()), required=True),
-        "LENGTH (KM)": st.column_config.NumberColumn("Length (km)", min_value=0.0, format="%.3f"),
-        "TAPPING LOAD (kVA)": st.column_config.NumberColumn("Load at Node (kVA)", min_value=0.0, format="%.1f")
+        "SECTION": st.column_config.TextColumn("Section", disabled=True),
+        "CONDUCTOR SIZE": st.column_config.SelectboxColumn("Conductor Type", options=list(VD_FACTORS.keys()), required=True),
+        "LENGTH (KM)": st.column_config.NumberColumn("Length (km)", format="%.3f"),
+        "NODE LOAD (kVA)": st.column_config.NumberColumn("Load at Node", format="%.1f")
     },
     use_container_width=True, num_rows="fixed"
 )
 
-# --- ACTION BUTTONS ---
-btn_col1, btn_col2, btn_col3 = st.columns(3)
+# --- CALCULATION LOGIC ---
+c1, c2, c3 = st.columns(3)
 
-# --- CALCULATION ENGINE ---
-if btn_col1.button("🚀 Run Full Calculation", type="primary", use_container_width=True):
-    if edited_df["CONDUCTOR"].isnull().any():
-        st.error("⚠️ Error: Sabhi sections ke liye Conductor select karna lazmi hai!")
-    else:
-        calc_df = edited_df.copy()
-        loads = calc_df["TAPPING LOAD (kVA)"].tolist()
-        upto_loads = [0] * len(loads)
-        running_sum = 0
-        
-        # Backward Summation (Tail to Source)
-        for i in range(len(loads)-1, -1, -1):
-            running_sum += loads[i]
-            upto_loads[i] = running_sum
+if c1.button("🚀 Calculate Voltage Drop", type="primary", use_container_width=True):
+    df = ed_df.copy()
+    if not df["CONDUCTOR SIZE"].isnull().any():
+        # Cumulative Load (Tail to Source)
+        node_loads = df["NODE LOAD (kVA)"].tolist()
+        cum_loads = [0] * len(node_loads)
+        temp_sum = 0
+        for i in range(len(node_loads)-1, -1, -1):
+            temp_sum += node_loads[i]
+            cum_loads[i] = temp_sum
             
-        calc_df["UPTO LOAD (kVA)"] = upto_loads
-        calc_df["FACTOR"] = calc_df["CONDUCTOR"].map(VD_FACTORS)
-        calc_df["SECTION VD (V)"] = calc_df["LENGTH (KM)"] * calc_df["UPTO LOAD (kVA)"] * calc_df["FACTOR"]
+        df["CUMULATIVE LOAD (kVA)"] = cum_loads
+        df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS)
+        df["SECTION VD (V)"] = df["LENGTH (KM)"] * df["CUMULATIVE LOAD (kVA)"] * df["VD FACTOR"]
         
-        total_vd_sum = calc_df["SECTION VD (V)"].sum()
-        max_load = upto_loads[0] if upto_loads else 0
-        df_factor = mdi_kva / max_load if max_load > 0 else 0
-        actual_vd_volts = total_vd_sum * df_factor
-        final_vd_percent = (actual_vd_volts / (11000 - actual_vd_volts) * 100) if (11000 - actual_vd_volts) > 0 else 0
+        t_vd_sum = df["SECTION VD (V)"].sum()
+        max_ld = cum_loads[0] if cum_loads else 0
+        df_v = mdi_k / max_ld if max_ld > 0 else 0
+        a_vd_v = t_vd_sum * df_v
+        v_per = (a_vd_v / (11000 - a_vd_v) * 100) if (11000 - a_vd_v) > 0 else 0
         
-        st.session_state.calc_data = calc_df
-        st.session_state.metrics = {
-            "total_vd_sum": total_vd_sum, "max_load": max_load,
-            "df_factor": df_factor, "actual_vd_volts": actual_vd_volts,
-            "final_vd_percent": final_vd_percent, "mdi_kva": mdi_kva
-        }
+        st.session_state.res_df = df
+        st.session_state.metrics = {"t_vd": t_vd_sum, "max_ld": max_ld, "df_v": df_v, "a_vd_v": a_vd_v, "v_per": v_per}
+    else:
+        st.error("Please select Conductor for all sections.")
 
-# --- RESULTS DISPLAY ---
-if st.session_state.calc_data is not None:
-    data = st.session_state.calc_data
+if st.session_state.res_df is not None:
+    res = st.session_state.res_df
     m = st.session_state.metrics
     
-    st.subheader("📊 Step 2: Sectional Analysis")
-    st.dataframe(data.style.format({"SECTION VD (V)": "{:.4f}", "UPTO LOAD (kVA)": "{:.1f}"}), use_container_width=True)
+    st.subheader("📊 Calculation Results")
+    st.dataframe(res, use_container_width=True)
     
-    # FORMULAS WITH LIVE CALC STEPS
     st.markdown('<div class="formula-section">', unsafe_allow_html=True)
-    st.subheader("🧮 Mathematical Verification")
-    
-    mc1, mc2, mc3 = st.columns(3)
-    with mc1:
-        st.latex(r"D.F. = \frac{\sqrt{3} \times 11 \times MDI(A)}{Total\ kVA}")
-        st.markdown(f'<p class="calculation-step">Step: {m["mdi_kva"]:.2f} / {m["max_load"]:.2f}</p>', unsafe_allow_html=True)
-        st.metric("Demand Factor", f"{m['df_factor']:.4f}")
-        
-    with mc2:
-        st.latex(r"Actual\ V.D. = \sum V.D. \times D.F.")
-        st.markdown(f'<p class="calculation-step">Step: {m["total_vd_sum"]:.2f} × {m["df_factor"]:.4f}</p>', unsafe_allow_html=True)
-        st.metric("Actual VD", f"{m['actual_vd_volts']:.2f} Volts")
-        
-    with mc3:
-        st.latex(r"\% V.D. = \frac{Act.\ V.D.}{11000 - Act.\ V.D.} \times 100")
-        st.markdown(f'<p class="calculation-step">Step: ({m["actual_vd_volts"]:.2f} / {11000 - m["actual_vd_volts"]:.2f}) × 100</p>', unsafe_allow_html=True)
-        st.metric("Final % Drop", f"{m['final_vd_percent']:.3f}%")
+    f_col1, f_col2, f_col3 = st.columns(3)
+    with f_col1:
+        st.latex(r"D.F. = \frac{MDI(kVA)}{Total\ kVA}")
+        st.metric("Demand Factor", f"{m['df_v']:.4f}")
+    with f_col2:
+        st.latex(r"Actual\ VD(V) = \sum VD \times DF")
+        st.metric("Actual VD", f"{m['a_vd_v']:.2f} V")
+    with f_col3:
+        st.latex(r"\% VD = \frac{VD}{11000-VD} \times 100")
+        st.metric("Voltage Drop", f"{m['v_per']:.3f} %")
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # EXCEL DOWNLOAD
-    csv_buffer = io.StringIO()
-    data.to_csv(csv_buffer, index=False)
-    btn_col3.download_button("📥 Download Excel Report", csv_buffer.getvalue(), f"{feeder_name}_Calc.csv", "text/csv", use_container_width=True)
-
-# --- SKETCH & PDF GENERATION ---
-if btn_col2.button("🎨 Generate Diagram & PDF", use_container_width=True):
-    if st.session_state.calc_data is None:
-        st.warning("Pehle calculation perform karein!")
-    else:
-        res_df = st.session_state.calc_data
+# --- SKETCH & PDF EXPORT ---
+if c2.button("🎨 Generate Sketch & Export PDF", use_container_width=True):
+    if st.session_state.res_df is not None:
+        res = st.session_state.res_df
         m = st.session_state.metrics
         
-        # Graphviz Sketch
-        st.subheader("🎨 Network Single Line Diagram")
-        sld = graphviz.Digraph()
-        sld.attr(rankdir='BT', bgcolor='#ffffff')
-        sld.node('SOURCE', f'SOURCE\n{substation_name}\n({m["max_load"]} kVA)', shape='house', color='blue', style='filled', fillcolor='#fff9c4')
+        # 1. Show Sketch in App
+        dot = graphviz.Digraph()
+        dot.attr(rankdir='BT')
+        dot.node('S', f'{ss_name}\n(Source)\n{m["max_ld"]} kVA', shape='house', style='filled', fillcolor='gold')
         
-        last_node = 'SOURCE'
-        for idx, row in res_df.iterrows():
-            curr_node = f"N{idx}"
-            label = f"{row['SECTION'].split('-')[-1]}"
-            is_cable = "CABLE" in row['CONDUCTOR'].upper()
-            
-            sld.node(curr_node, label, shape='doublecircle' if is_cable else 'circle', color='red')
-            edge_lbl = f"{row['CONDUCTOR']}\n{row['LENGTH (KM)']}km\nVD: {row['SECTION VD (V)']:.2f}V"
-            sld.edge(curr_node, last_node, label=edge_lbl, color='darkgreen', fontcolor='blue', penwidth='2')
-            last_node = curr_node
+        prev = 'S'
+        for i, r in res.iterrows():
+            nid = f"N{i}"
+            is_c = "CABLE" in r['CONDUCTOR SIZE'].upper()
+            dot.node(nid, r['SECTION'].split('-')[-1], shape='box' if is_c else 'circle', style='filled', fillcolor='#e3f2fd')
+            dot.edge(nid, prev, label=f"{r['CONDUCTOR SIZE']}\n{r['LENGTH (KM)']}km", color='red' if is_c else 'black')
+            prev = nid
         
-        st.graphviz_chart(sld)
+        st.graphviz_chart(dot)
         
-        # PDF EXPORT (Using fpdf2 style)
+        # 2. PDF Generation
         pdf = FPDF()
         pdf.add_page()
-        pdf.set_font("helvetica", "B", 18)
-        pdf.cell(0, 15, "PSPCL VOLTAGE DROP ANALYSIS REPORT", align='C', ln=True)
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(190, 10, "PSPCL 11kV VOLTAGE DROP REPORT", ln=True, align='C')
         pdf.ln(5)
         
-        pdf.set_font("helvetica", "B", 11)
-        pdf.cell(50, 10, f"Feeder: {feeder_name}", ln=False)
-        pdf.cell(50, 10, f"Sub-Div: {sub_div}", ln=True)
-        pdf.cell(50, 10, f"Division: {division}", ln=False)
-        pdf.cell(50, 10, f"MDI: {m['mdi_kva']} kVA", ln=True)
-        pdf.ln(10)
+        pdf.set_font("Arial", '', 11)
+        pdf.cell(95, 8, f"Feeder: {f_name}")
+        pdf.cell(95, 8, f"Sub-Division: {s_div}", ln=True)
+        pdf.cell(95, 8, f"Substation: {ss_name}")
+        pdf.cell(95, 8, f"Division: {div}", ln=True)
+        pdf.ln(5)
         
-        # Table Header
-        pdf.set_fill_color(240, 240, 240)
-        cols = [("Section", 30), ("Conductor", 55), ("Len", 25), ("Load", 35), ("VD(V)", 35)]
-        for h, w in cols: pdf.cell(w, 10, h, 1, 0, 'C', fill=True)
-        pdf.ln()
-        
-        # Table Body
-        pdf.set_font("helvetica", "", 10)
-        for _, r in res_df.iterrows():
-            pdf.cell(30, 9, str(r['SECTION']), 1)
-            pdf.cell(55, 9, str(r['CONDUCTOR'])[:25], 1)
-            pdf.cell(25, 9, str(r['LENGTH (KM)']), 1)
-            pdf.cell(35, 9, str(r['UPTO LOAD (kVA)']), 1)
-            pdf.cell(35, 9, f"{r['SECTION VD (V)']:.3f}", 1)
-            pdf.ln()
-            
-        pdf.ln(15)
-        pdf.set_font("helvetica", "B", 13)
-        pdf.set_text_color(200, 0, 0)
-        pdf.cell(0, 10, f"FINAL VOLTAGE DROP: {m['final_vd_percent']:.3f} %", ln=True)
-        
-        # SDO STAMP
-        pdf.ln(30)
-        pdf.set_text_color(0, 0, 0)
-        pdf.cell(125)
-        pdf.multi_cell(60, 8, f"__________________\nSDO OP SUB-DIVISION\nPSPCL {sub_div.upper()}", align='C')
-        
-        pdf_bytes = pdf.output()
-        st.download_button("📥 Download Official Signed PDF", bytes(pdf_bytes), f"{feeder_name}_Official.pdf", "application/pdf", use_container_width=True)
-
-# --- FOOTER SECTION ---
-st.markdown(f"""
-<div class="footer-container">
-    <p style="font-size: 1.4em; font-weight: bold; color: #333;">Developed for PSPCL Engineers by Anuj Narang</p>
-    <div style="margin: 25px 0;">
-        <a href="https://instagram.com/iamanujnarang" target="_blank"><img src="{INSTA_ICON}" class="social-logo"></a>
-        <a href="https://facebook.com/iamanujnarang" target="_blank"><img src="{FB_ICON}" class="social-logo"></a>
-        <a href="https://linkedin.com/in/iamanujnarang" target="_blank"><img src="{LINKEDIN_ICON}" class="social-logo"></a>
-    </div>
-    <p style="color: #888;">Strategic Partner</p>
-    <a href="https://beeclue.com" target="_blank">
-        <img src="{BEECLUE_LOGO}" class="beeclue-footer-logo">
-    </a>
-</div>
-""", unsafe_allow_html=True)
+        # Table
+        pdf.set_font("Arial", 'B', 10)
+        pdf.set_fill_color(230, 230, 230)
+        pdf.cell(25, 10, "Section", 1, 0, 'C', True)
+        pdf.cell(55, 10, "Conductor", 1, 0, 'C', True)
+        pdf.cell(25, 10, "Length", 1, 0, 'C', True)
+        pdf.cell(40, 10,
