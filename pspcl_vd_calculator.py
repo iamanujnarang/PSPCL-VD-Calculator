@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import graphviz
+from fpdf import FPDF
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="PSPCL VD Calculator Pro", page_icon="⚡", layout="wide")
@@ -25,11 +26,9 @@ st.markdown(f"""
 <style>
     .header-box {{ text-align: center; padding: 25px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); margin-bottom: 25px; border-top: 6px solid #ffcc00; }}
     .formula-section {{ background: #ffffff; padding: 30px; border-radius: 15px; border: 1px solid #dee2e6; margin-top: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }}
-    .sketch-section {{ background: #fdfdfd; padding: 20px; border-radius: 15px; border: 2px solid #eee; margin-top: 20px; text-align: center; }}
-    .footer-container {{ text-align: center; margin-top: 60px; padding: 40px; border-top: 1px solid #eee; background: #fdfdfd; }}
-    .social-logo {{ width: 35px; margin: 0 15px; transition: transform 0.3s ease-in-out; cursor: pointer; }}
+    .footer-container {{ text-align: center; margin-top: 60px; padding: 40px; border-top: 1px solid #eee; }}
+    .social-logo {{ width: 35px; margin: 0 15px; transition: 0.3s; }}
     .social-logo:hover {{ transform: scale(1.3); }}
-    .stMetric {{ background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #eee; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -39,156 +38,145 @@ st.markdown(f'<div class="header-box"><img src="{PSPCL_LOGO}" width="100"><h1>PU
 # --- SIDEBAR ---
 with st.sidebar:
     st.header("📝 Feeder Details")
-    feeder_name = st.text_input("Feeder Name", placeholder="e.g. 11kV Mall Mandi")
-    substation_name = st.text_input("Feeding Substation", placeholder="e.g. 66kV Mall Mandi")
-    sub_div = st.text_input("Sub-Division", placeholder="e.g. Mall Mandi")
-    div = st.text_input("Division", placeholder="e.g. City Center")
+    feeder_name = st.text_input("Feeder Name", value="11kV Mall Mandi")
+    substation_name = st.text_input("Feeding Substation", value="66kV Mall Mandi")
+    sub_div = st.text_input("Sub-Division", value="Mall Mandi")
+    div = st.text_input("Division", value="City Center")
     
     st.divider()
     st.header("⚡ Load & Sections")
-    mdi_amps = st.number_input("Max Demand (MDI Amps)", min_value=0.0, value=0.0, step=0.1, format="%.1f")
-    num_sections = st.number_input("Number of Sections", min_value=1, max_value=100, value=2)
+    mdi_amps = st.number_input("Max Demand (MDI Amps)", min_value=0.0, value=100.0, step=0.1)
+    num_sections = st.number_input("Number of Sections", min_value=1, max_value=100, value=5)
     
     mdi_kva = round(np.sqrt(3) * 11 * mdi_amps, 4)
     st.success(f"MDI in kVA: {mdi_kva}")
 
-# --- DATA EDITOR (FIXED SECTION LOGIC) ---
+# --- DATA ENTRY ---
 st.subheader("📍 Step 1: Sectional Data Entry")
-# Generate labels A-B, B-C, etc. based strictly on num_sections
 points = [f"{chr(65+i)}-{chr(66+i)}" for i in range(num_sections)]
-
 df_input = pd.DataFrame({
     "POINT": points,
-    "CONDUCTOR SIZE": [None] * num_sections,
-    "DISTANCE (KM)": [0.0] * num_sections,
-    "SECTION LOAD (kVA)": [0.0] * num_sections
+    "CONDUCTOR SIZE": ["ACSR 100 SQMM"] * num_sections,
+    "DISTANCE (KM)": [1.0] * num_sections,
+    "SECTION LOAD (kVA)": [100.0] * num_sections
 })
 
-edited_df = st.data_editor(
-    df_input,
-    column_config={
-        "POINT": st.column_config.TextColumn("Section", disabled=True),
-        "CONDUCTOR SIZE": st.column_config.SelectboxColumn("Conductor Type", options=list(VD_FACTORS.keys()), required=True),
-        "DISTANCE (KM)": st.column_config.NumberColumn("Length (km)", format="%.3f", min_value=0.0),
-        "SECTION LOAD (kVA)": st.column_config.NumberColumn("Tapping Load (kVA)", format="%.1f", min_value=0.0)
-    },
-    use_container_width=True,
-    num_rows="fixed" # Prevents extra ghost rows
-)
+edited_df = st.data_editor(df_input, use_container_width=True, num_rows="fixed")
 
-# Initialize Session State for dataframe to persist between button clicks
-if 'calculated_df' not in st.session_state:
-    st.session_state.calculated_df = None
+# --- CALCULATION LOGIC ---
+df = edited_df.copy()
+loads = df["SECTION LOAD (kVA)"].fillna(0).tolist()
+upto_loads = [0] * len(loads)
+temp_sum = 0
+for i in range(len(loads)-1, -1, -1):
+    temp_sum += loads[i]
+    upto_loads[i] = temp_sum
 
-# --- CALCULATIONS ---
-col_calc, col_sketch = st.columns([1, 1])
+df["UPTO LOAD (kVA)"] = upto_loads
+df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
+df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
 
-with col_calc:
-    calc_trigger = st.button("🚀 Calculate Voltage Drop", type="primary", use_container_width=True)
+total_vd_volts = df["VD (VOLTS)"].sum()
+total_load_at_source = upto_loads[0] if upto_loads else 0
+df_val = mdi_kva / total_load_at_source if total_load_at_source > 0 else 0
+actual_vd_v = total_vd_volts * df_val
+vd_percent = (actual_vd_v / (11000 - actual_vd_v) * 100) if (11000 - actual_vd_v) > 0 else 0
 
-with col_sketch:
-    sketch_trigger = st.button("🎨 Generate Feeder Sketch", use_container_width=True)
+# --- SEPARATE BUTTONS ---
+c1, c2 = st.columns(2)
+with c1:
+    calc_btn = st.button("🚀 Calculate & Show Formulas", type="primary", use_container_width=True)
+with c2:
+    sketch_btn = st.button("🎨 Generate Sketch & PDF", use_container_width=True)
 
-if calc_trigger:
-    df = edited_df.copy()
-    loads = df["SECTION LOAD (kVA)"].fillna(0).tolist()
-    upto_loads = [0] * len(loads)
-    temp_sum = 0
-    for i in range(len(loads)-1, -1, -1):
-        temp_sum += loads[i]
-        upto_loads[i] = temp_sum
+# --- DISPLAY CALCULATIONS ---
+if calc_btn or 'calc_done' in st.session_state:
+    st.session_state.calc_done = True
+    st.subheader("📊 Calculation Results")
     
-    df["UPTO LOAD (kVA)"] = upto_loads
-    df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
-    df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
-    
-    st.session_state.calculated_df = df
-    st.session_state.totals = {
-        "len": df["DISTANCE (KM)"].sum(),
-        "load": df["SECTION LOAD (kVA)"].sum(),
-        "vd": df["VD (VOLTS)"].sum(),
-        "source_kva": upto_loads[0] if upto_loads else 0
-    }
-
-# --- DISPLAY RESULTS ---
-if st.session_state.calculated_df is not None:
-    df = st.session_state.calculated_df
-    totals = st.session_state.totals
-    
-    # 1. Calculation Table
+    # Grand Total Row
     summary_row = pd.DataFrame({
-        "POINT": ["**GRAND TOTAL**"], "CONDUCTOR SIZE": ["-"], "DISTANCE (KM)": [totals['len']],
-        "SECTION LOAD (kVA)": [totals['load']], "UPTO LOAD (kVA)": [0.0], "VD (VOLTS)": [totals['vd']]
+        "POINT": ["**GRAND TOTAL**"], "CONDUCTOR SIZE": ["-"], 
+        "DISTANCE (KM)": [df["DISTANCE (KM)"].sum()],
+        "SECTION LOAD (kVA)": [df["SECTION LOAD (kVA)"].sum()], 
+        "UPTO LOAD (kVA)": [0.0], "VD (VOLTS)": [total_vd_volts]
     })
     st.dataframe(pd.concat([df, summary_row], ignore_index=True), use_container_width=True)
 
-    # 2. Formula Summary
-    df_val = mdi_kva / totals['source_kva'] if totals['source_kva'] > 0 else 0
-    actual_vd_v = totals['vd'] * df_val
-    vd_percent = (actual_vd_v / (11000 - actual_vd_v) * 100) if (11000 - actual_vd_v) > 0 else 0
-
+    # Formulas Section
     st.markdown('<div class="formula-section">', unsafe_allow_html=True)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Demand Factor", f"{df_val:.4f}")
-    c2.metric("Actual VD", f"{actual_vd_v:.2f} Volts")
-    c3.metric("Final % VD", f"{vd_percent:.3f}%")
+    f_col1, f_col2, f_col3 = st.columns(3)
+    with f_col1:
+        st.latex(r"D.F. = \frac{\sqrt{3} \times 11 \times MDI(A)}{Total\ kVA}")
+        st.metric("Demand Factor", f"{df_val:.4f}")
+    with f_col2:
+        st.latex(r"Actual\ V.D. = \sum V.D. \times D.F.")
+        st.metric("Actual VD", f"{actual_vd_v:.2f} Volts")
+    with f_col3:
+        st.latex(r"\% V.D. = \frac{Act.\ V.D.}{11000 - Act.\ V.D.} \times 100")
+        st.metric("% Voltage Drop", f"{vd_percent:.3f}%")
     st.markdown('</div>', unsafe_allow_html=True)
 
-# --- SKETCH LOGIC ---
-if sketch_trigger:
-    if st.session_state.calculated_df is None:
-        st.warning("Pehle 'Calculate Voltage Drop' par click karein!")
-    else:
-        df = st.session_state.calculated_df
-        st.subheader("🎨 Dynamic Feeder Sketch")
-        st.markdown('<div class="sketch-section">', unsafe_allow_html=True)
+# --- SKETCH & PDF OPTION ---
+if sketch_btn:
+    st.subheader("🎨 Feeder Sketch")
+    dot = graphviz.Digraph()
+    dot.attr(rankdir='BT')
+    dot.node('SS', f'{substation_name}\n(Source)', shape='house', style='filled', fillcolor='gold')
+    
+    prev = 'SS'
+    for i, row in df.iterrows():
+        node_id = f"P{i}"
+        point = row['POINT'].split('-')[-1]
+        is_cable = "CABLE" in row['CONDUCTOR SIZE'].upper()
         
-        dot = graphviz.Digraph(comment='Feeder Sketch')
-        dot.attr(rankdir='BT') 
+        label = f"{row['CONDUCTOR SIZE']}\n{row['DISTANCE (KM)']}km | VD: {row['VD (VOLTS)']:.2f}V\nCum: {row['UPTO LOAD (kVA)']}kVA"
         
-        # Substation Node
-        ss_name = substation_name if substation_name else "SUBSTATION"
-        dot.node('SS', f' {ss_name} \n (Source) ', shape='house', style='filled', fillcolor='gold')
-        
-        previous_node = 'SS'
-        for i, row in df.iterrows():
-            node_id = f"P{i}"
-            point_name = row['POINT'].split('-')[-1]
-            cond_size = row['CONDUCTOR SIZE']
-            
-            # Identify if Cable or Conductor
-            is_cable = "CABLE" in cond_size.upper()
-            
-            # Label for the arrow/line
-            edge_label = (f"{row['DISTANCE (KM)']} km\n"
-                          f"{cond_size}\n"
-                          f"Sec VD: {row['VD (VOLTS)']:.2f} V\n"
-                          f"Cum Load: {row['UPTO LOAD (kVA)']} kVA")
-            
-            # Styling: Cable = Double Circle Node or Coil-like feel, Conductor = Single
-            node_shape = 'doublecircle' if is_cable else 'circle'
-            dot.node(node_id, point_name, shape=node_shape, style='filled', fillcolor='aliceblue')
-            
-            # Line style: Cables can be dashed to look different
-            line_style = 'solid' if not is_cable else 'dashed'
-            dot.edge(node_id, previous_node, label=edge_label, color='red', style=line_style, penwidth='2.0')
-            
-            previous_node = node_id
-            
-        st.graphviz_chart(dot)
-        st.caption("Note: Dashed lines represent Cables, Solid lines represent ACSR Conductors.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        dot.node(node_id, point, shape='doublecircle' if is_cable else 'circle', style='filled', fillcolor='aliceblue')
+        dot.edge(node_id, prev, label=label, color='red', style='dashed' if is_cable else 'solid', penwidth='2')
+        prev = node_id
+    
+    st.graphviz_chart(dot)
+
+    # PDF Export with SDO Stamp
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, "PSPCL VOLTAGE DROP REPORT", ln=True, align='C')
+    pdf.set_font("Arial", '', 12)
+    pdf.ln(5)
+    pdf.cell(200, 10, f"Feeder: {feeder_name} | Sub-Division: {sub_div}", ln=True, align='C')
+    pdf.ln(10)
+    
+    # Simple Table in PDF
+    pdf.set_font("Arial", 'B', 10)
+    pdf.cell(30, 10, "Section", 1)
+    pdf.cell(60, 10, "Conductor", 1)
+    pdf.cell(30, 10, "Dist(km)", 1)
+    pdf.cell(30, 10, "Load(kVA)", 1)
+    pdf.cell(30, 10, "VD(Volts)", 1)
+    pdf.ln()
+    
+    pdf.set_font("Arial", '', 10)
+    for i, row in df.iterrows():
+        pdf.cell(30, 10, str(row['POINT']), 1)
+        pdf.cell(60, 10, str(row['CONDUCTOR SIZE']), 1)
+        pdf.cell(30, 10, str(row['DISTANCE (KM)']), 1)
+        pdf.cell(30, 10, str(row['SECTION LOAD (kVA)']), 1)
+        pdf.cell(30, 10, f"{row['VD (VOLTS)']:.2f}", 1)
+        pdf.ln()
+
+    pdf.ln(20)
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(0, 10, f"Actual % Voltage Drop: {vd_percent:.3f}%", ln=True)
+    
+    # SDO STAMP SECTION
+    pdf.ln(30)
+    pdf.cell(120) # Move to right
+    pdf.multi_cell(60, 10, f"__________________\nSDO OP SUB-DIV\nPSPCL {sub_div.upper()}", align='C')
+    
+    pdf_output = pdf.output(dest="S").encode("latin-1")
+    st.download_button("📥 Download PDF Report with SDO Stamp", pdf_output, f"{feeder_name}_Report.pdf", "application/pdf")
 
 # --- FOOTER ---
-st.markdown(f"""
-<div class="footer-container">
-    <p style="font-size:1.2em; font-weight:bold;">Made with ❤️ by Anuj Narang</p>
-    <div style="margin: 25px 0;">
-        <a href="https://instagram.com/iamanujnarang"><img src="{INSTA_ICON}" class="social-logo"></a>
-        <a href="https://facebook.com/iamanujnarang"><img src="{FB_ICON}" class="social-logo"></a>
-        <a href="https://x.com/iamanujnarang"><img src="{X_ICON}" class="social-logo"></a>
-        <a href="https://linkedin.com/in/iamanujnarang"><img src="{LINKEDIN_ICON}" class="social-logo"></a>
-    </div>
-    <p>Powered by <b>Beeclue Tech</b></p>
-</div>
-""", unsafe_allow_html=True)
+st.markdown(f'<div class="footer-container"><b>Made with ❤️ by Anuj Narang</b><br>Powered by Beeclue Tech</div>', unsafe_allow_html=True)
