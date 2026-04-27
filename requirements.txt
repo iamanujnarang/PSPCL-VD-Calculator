@@ -3,6 +3,6 @@ pandas
 matplotlib
 xlsxwriter
 graphviz
-fpdf
+fpdf2
 base64
 numpy
