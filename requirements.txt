@@ -5,3 +5,4 @@ xlsxwriter
 graphviz
 fpdf2
 numpy
+openpyxl
