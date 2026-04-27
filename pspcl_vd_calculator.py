@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
-import graphviz # Sketch banane ke liye zaroori hai
+import graphviz # Sketch banane ke liye
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="PSPCL VD Calculator Pro", page_icon="⚡", layout="wide")
@@ -43,7 +43,7 @@ st.markdown(f"""
 </style>
 """, unsafe_allow_html=True)
 
-# --- HEADER ---
+# --- HEADER (Professional word removed) ---
 st.markdown(f'<div class="header-box"><img src="{PSPCL_LOGO}" width="100"><h1>PUNJAB STATE POWER CORPORATION LIMITED</h1><h3>11kV Voltage Drop Calculation Tool</h3></div>', unsafe_allow_html=True)
 
 # --- SIDEBAR ---
@@ -75,7 +75,7 @@ df_input = pd.DataFrame({
 edited_df = st.data_editor(
     df_input,
     column_config={
-        "POINT": st.column_config.TextColumn("Section", disabled=True),
+        "POINT": st.column_config.TextColumn("Section", disabled=False), # Enabled in case user adds rows manually
         "CONDUCTOR SIZE": st.column_config.SelectboxColumn("Conductor Type", options=list(VD_FACTORS.keys()), required=True),
         "DISTANCE (KM)": st.column_config.NumberColumn("Length (km)", format="%.3f", min_value=0.0),
         "SECTION LOAD (kVA)": st.column_config.NumberColumn("Tapping Load (kVA)", format="%.1f", min_value=0.0)
@@ -86,105 +86,107 @@ edited_df = st.data_editor(
 
 # --- CALCULATIONS ---
 if st.button("🚀 Calculate & Generate Sketch", type="primary"):
-    df = edited_df.copy()
+    # Filter valid rows (skip if point or conductor size is missing)
+    df = edited_df.dropna(subset=["POINT", "CONDUCTOR SIZE"]).copy()
     
-    # Logic: Tail to Source Cumulative Load
-    loads = df["SECTION LOAD (kVA)"].fillna(0).tolist()
-    upto_loads = [0] * len(loads)
-    temp_sum = 0
-    for i in range(len(loads)-1, -1, -1):
-        temp_sum += loads[i]
-        upto_loads[i] = temp_sum
-    
-    df["UPTO LOAD (kVA)"] = upto_loads
-    df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
-    df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
-    
-    total_len = df["DISTANCE (KM)"].sum()
-    total_section_load = df["SECTION LOAD (kVA)"].sum()
-    total_vd_volts = df["VD (VOLTS)"].sum()
-    total_load_at_source = upto_loads[0] if len(upto_loads) > 0 else 0
-    
-    df_val = mdi_kva / total_load_at_source if total_load_at_source > 0 else 0
-    actual_vd_v = total_vd_volts * df_val
-    denom = (11000 - actual_vd_v)
-    vd_percent = (actual_vd_v / denom * 100) if denom > 0 else 0
-
-    # --- TABLE ENHANCEMENT: GRAND TOTAL ROW ---
-    summary_row = pd.DataFrame({
-        "POINT": ["**GRAND TOTAL**"], "CONDUCTOR SIZE": ["-"], "DISTANCE (KM)": [total_len],
-        "SECTION LOAD (kVA)": [total_section_load], "UPTO LOAD (kVA)": [0.0],
-        "VD FACTOR": [0.0], "VD (VOLTS)": [total_vd_volts]
-    })
-    df_display = pd.concat([df, summary_row], ignore_index=True)
-
-    # --- FEEDER SKETCH GENERATION (New Project Request) ---
-    st.divider()
-    st.subheader(f"🎨 Feeder Sketch: {feeder_name if feeder_name else '11kV Feeder'}")
-    st.markdown('<div class="sketch-section">', unsafe_allow_html=True)
-    
-    # Create Graph
-    dot = graphviz.Digraph(comment='Feeder Sketch')
-    dot.attr(rankdir='BT') # Bottom to Top flow (Bottom is Tail, Top is Substation)
-    
-    # Substation Node
-    ss_label = f"SUBSTATION\n{sub_div}\n({total_load_at_source} kVA Total)"
-    dot.node('SS', ss_label, shape='box', style='filled', fillcolor='gold')
-    
-    previous_node = 'SS'
-    
-    # Draw sections from Source to Tail, but labeling logic follows cumulative load
-    for i, row in df.iterrows():
-        # Node label for each tapping point
-        node_id = f"P{i}"
-        point_name = row['POINT'].split('-')[-1] # Extract 'B' from 'A-B'
+    if df.empty:
+        st.error("Please enter valid section data first.")
+    else:
+        # Logic: Tail to Source Cumulative Load
+        loads = df["SECTION LOAD (kVA)"].fillna(0).tolist()
+        upto_loads = [0] * len(loads)
+        temp_sum = 0
+        for i in range(len(loads)-1, -1, -1):
+            temp_sum += loads[i]
+            upto_loads[i] = temp_sum
         
-        # Section Label (Shows distance and how load adds up towards source)
-        edge_label = f"{row['DISTANCE (KM)']} km\n--- {row['SECTION LOAD (kVA)']} kVA ---\n(Cum: {row['UPTO LOAD (kVA)']} kVA)"
+        df["UPTO LOAD (kVA)"] = upto_loads
+        df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
+        df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
         
-        dot.node(node_id, point_name, shape='circle', style='filled', fillcolor='lightblue')
-        dot.edge(node_id, previous_node, label=edge_label, color='red', penwidth='2.0')
+        total_len = df["DISTANCE (KM)"].sum()
+        total_section_load = df["SECTION LOAD (kVA)"].sum()
+        total_vd_volts = df["VD (VOLTS)"].sum()
+        total_load_at_source = upto_loads[0] if len(upto_loads) > 0 else 0
         
-        previous_node = node_id
+        df_val = mdi_kva / total_load_at_source if total_load_at_source > 0 else 0
+        actual_vd_v = total_vd_volts * df_val
+        denom = (11000 - actual_vd_v)
+        vd_percent = (actual_vd_v / denom * 100) if denom > 0 else 0
 
-    st.graphviz_chart(dot)
-    st.markdown('</div>', unsafe_allow_html=True)
+        # --- TABLE ENHANCEMENT: GRAND TOTAL ROW ---
+        summary_row = pd.DataFrame({
+            "POINT": ["**GRAND TOTAL**"], "CONDUCTOR SIZE": ["-"], "DISTANCE (KM)": [total_len],
+            "SECTION LOAD (kVA)": [total_section_load], "UPTO LOAD (kVA)": [0.0],
+            "VD FACTOR": [0.0], "VD (VOLTS)": [total_vd_volts]
+        })
+        df_display = pd.concat([df, summary_row], ignore_index=True)
 
-    # --- DISPLAY CALCULATION TABLE ---
-    st.subheader("📊 Step 2: Voltage Drop Analysis Table")
-    st.dataframe(df_display.style.format({
-        "DISTANCE (KM)": "{:.3f}", "SECTION LOAD (kVA)": "{:.1f}",
-        "UPTO LOAD (kVA)": "{:.2f}", "VD (VOLTS)": "{:.4f}"
-    }), use_container_width=True)
+        # --- FEEDER SKETCH GENERATION (Fixed AttributeError) ---
+        st.divider()
+        st.subheader(f"🎨 Feeder Sketch: {feeder_name if feeder_name else '11kV Feeder'}")
+        st.markdown('<div class="sketch-section">', unsafe_allow_html=True)
+        
+        dot = graphviz.Digraph(comment='Feeder Sketch')
+        dot.attr(rankdir='BT') # Bottom to Top (Tail at bottom, SS at top)
+        
+        ss_label = f"SUBSTATION\n{sub_div}\n({total_load_at_source} kVA Total)"
+        dot.node('SS', ss_label, shape='box', style='filled', fillcolor='gold')
+        
+        previous_node = 'SS'
+        
+        # Iterate only original data rows
+        for i, row in df.iterrows():
+            node_id = f"P{i}"
+            # AttributeError fix: handle if POINT is None or empty
+            raw_point = str(row['POINT']) if row['POINT'] else f"Point {i}"
+            point_name = raw_point.split('-')[-1] if '-' in raw_point else raw_point
+            
+            edge_label = f"{row['DISTANCE (KM)']} km\n{row['SECTION LOAD (kVA)']} kVA Load\n(Cum: {row['UPTO LOAD (kVA)']} kVA)"
+            
+            dot.node(node_id, point_name, shape='circle', style='filled', fillcolor='lightblue')
+            dot.edge(node_id, previous_node, label=edge_label, color='red', penwidth='2.0')
+            
+            previous_node = node_id
 
-    # --- FORMULAS & FINAL RESULTS ---
-    st.markdown('<div class="formula-section">', unsafe_allow_html=True)
-    st.subheader("🧮 Applied Formulas & Final Summary")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.info("1. Demand Factor (D.F.)")
-        st.latex(r"D.F. = \frac{\sqrt{3} \times 11 \times MDI(A)}{Total\ kVA}")
-        st.metric("Result (D.F.)", f"{df_val:.4f}")
-    with c2:
-        st.info("2. Actual Voltage Drop")
-        st.latex(r"Actual\ V.D. = Total\ V.D. \times D.F.")
-        st.metric("Actual VD", f"{actual_vd_v:.2f} Volts")
-    with c3:
-        st.info("3. Percentage Voltage Drop")
-        st.latex(r"\% V.D. = \frac{Actual\ V.D.}{11000 - Actual\ V.D.} \times 100")
-        st.metric("Final % VD", f"{vd_percent:.3f}%")
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.graphviz_chart(dot)
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # --- EXPORT ---
-    csv_report = io.StringIO()
-    csv_report.write(f"OFFICIAL REPORT: {feeder_name}\n")
-    df_display.to_csv(csv_report, index=False)
-    st.download_button("📥 Download Official CSV Report", csv_report.getvalue(), f"{feeder_name}_Report.csv", "text/csv")
+        # --- DISPLAY CALCULATION TABLE ---
+        st.subheader("📊 Step 2: Voltage Drop Analysis Table")
+        st.dataframe(df_display.style.format({
+            "DISTANCE (KM)": "{:.3f}", "SECTION LOAD (kVA)": "{:.1f}",
+            "UPTO LOAD (kVA)": "{:.2f}", "VD (VOLTS)": "{:.4f}"
+        }), use_container_width=True)
+
+        # --- FORMULAS & FINAL RESULTS ---
+        st.markdown('<div class="formula-section">', unsafe_allow_html=True)
+        st.subheader("🧮 Applied Formulas & Final Summary")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.info("1. Demand Factor (D.F.)")
+            st.latex(r"D.F. = \frac{\sqrt{3} \times 11 \times MDI(A)}{Total\ kVA}")
+            st.metric("Result (D.F.)", f"{df_val:.4f}")
+        with c2:
+            st.info("2. Actual Voltage Drop")
+            st.latex(r"Actual\ V.D. = Total\ V.D. \times D.F.")
+            st.metric("Actual VD", f"{actual_vd_v:.2f} Volts")
+        with c3:
+            st.info("3. Percentage Voltage Drop")
+            st.latex(r"\% V.D. = \frac{Actual\ V.D.}{11000 - Actual\ V.D.} \times 100")
+            st.metric("Final % VD", f"{vd_percent:.3f}%")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # --- EXPORT ---
+        csv_report = io.StringIO()
+        csv_report.write(f"OFFICIAL REPORT: {feeder_name}\n")
+        df_display.to_csv(csv_report, index=False)
+        st.download_button("📥 Download Official CSV Report", csv_report.getvalue(), f"{feeder_name}_Report.csv", "text/csv")
 
 else:
     st.warning("Please fill the data and click 'Calculate & Generate Sketch'.")
 
-# --- UPDATED FOOTER ---
+# --- FOOTER ---
 st.markdown(f"""
 <div class="footer-container">
     <p style="font-size:1.2em; font-weight:bold; color:#333;">Made with ❤️ by Anuj Narang</p>
