@@ -4,3 +4,4 @@ matplotlib
 xlsxwriter
 graphviz
 fpdf
+base64
