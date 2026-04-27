@@ -6,7 +6,7 @@ import io
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="PSPCL VD Calculator Pro", page_icon="⚡", layout="wide")
 
-# --- LOGOS & LINKS ---
+# --- ASSETS ---
 PSPCL_LOGO = "https://pspcl.in/assets/images/logo.png"
 INSTA_ICON = "https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
 FB_ICON = "https://upload.wikimedia.org/wikipedia/commons/1/1b/Facebook_icon.svg"
@@ -22,49 +22,54 @@ VD_FACTORS = {
 # --- STYLING ---
 st.markdown(f"""
 <style>
-    .header-box {{ text-align: center; padding: 20px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; border-top: 5px solid #ffcc00; }}
-    .footer-container {{ text-align: center; margin-top: 50px; padding: 20px; border-top: 1px solid #ddd; }}
-    .social-logo {{ width: 25px; margin: 0 10px; }}
-    .formula-card {{ background: #f0f4f8; padding: 15px; border-radius: 10px; border-left: 5px solid #004a99; margin-bottom: 20px; }}
+    .header-box {{ text-align: center; padding: 25px; background: white; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 25px; border-top: 6px solid #ffcc00; }}
+    .formula-card {{ background: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; border-left: 6px solid #004a99; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }}
+    .result-badge {{ padding: 10px 20px; border-radius: 8px; font-weight: bold; font-size: 1.2em; display: inline-block; margin-top: 10px; }}
+    .footer-container {{ text-align: center; margin-top: 60px; padding: 30px; border-top: 1px solid #eee; background: #fff; }}
+    .social-logo {{ width: 28px; margin: 0 12px; transition: 0.3s; }}
+    .social-logo:hover {{ transform: scale(1.1); }}
 </style>
 """, unsafe_allow_html=True)
 
 # --- HEADER ---
-st.markdown(f'<div class="header-box"><img src="{PSPCL_LOGO}" width="100"><h1>PUNJAB STATE POWER CORPORATION LIMITED</h1><h3>11kV Voltage Drop Pro Tool</h3></div>', unsafe_allow_html=True)
+st.markdown(f'<div class="header-box"><img src="{PSPCL_LOGO}" width="110"><h1>PUNJAB STATE POWER CORPORATION LIMITED</h1><h3 style="font-weight:400; color:#666;">Official 11kV Voltage Drop Calculation Tool</h3></div>', unsafe_allow_html=True)
 
-# --- SIDEBAR & INPUTS ---
+# --- SIDEBAR CONFIG ---
 with st.sidebar:
-    st.header("📋 Feeder Details")
-    feeder_name = st.text_input("Feeder Name", "")
-    sub_division = st.text_input("Sub-Division", "")
-    division = st.text_input("Division", "")
+    st.header("🏢 Office Info")
+    feeder_name = st.text_input("Feeder Name", placeholder="e.g. 11kV New Amritsar")
+    sub_division = st.text_input("Sub-Division", placeholder="e.g. Mall Mandi")
+    division = st.text_input("Division", placeholder="e.g. City Center")
     
     st.divider()
     st.header("⚡ Load Parameters")
-    mdi_amps = st.number_input("Max Demand (MDI in Amps)", min_value=0.0, value=0.0, step=1.0)
-    # kVA from Amps for Demand Factor numerator
-    mdi_kva = round(np.sqrt(3) * 11 * mdi_amps, 2)
-    st.caption(f"Equivalent MDI: {mdi_kva} kVA")
+    mdi_amps = st.number_input("Max Demand (MDI in Amps)", min_value=0.0, step=0.5, format="%.1f")
+    # Calculation for display
+    mdi_kva_calc = round(np.sqrt(3) * 11 * mdi_amps, 2)
+    st.info(f"Equivalent Load: **{mdi_kva_calc} kVA**")
     
     st.divider()
-    num_sections = st.number_input("Number of Sections", min_value=1, max_value=100, value=2)
+    num_sections = st.number_input("Default Sections", min_value=1, max_value=100, value=2)
 
-# --- DATA ENTRY ---
-col_main, col_formula = st.columns([2.5, 1.5])
+# --- MAIN DATA ENTRY ---
+st.subheader("📋 Step 1: Enter Section Data (Source to Tail)")
+# Note: User enters source to tail, we calculate tail to source for Upto Load
+points = [f"{chr(65+i)}-{chr(66+i)}" for i in range(num_sections)]
+init_data = pd.DataFrame({
+    "POINT": points,
+    "CONDUCTOR SIZE": [None] * num_sections,
+    "DISTANCE (KM)": [0.0] * num_sections,
+    "SECTION WISE LOAD (kVA)": [0.0] * num_sections
+})
 
-with col_main:
-    st.subheader("📝 Section Data (Tail to Source)")
-    points = [f"{chr(65+i)}-{chr(66+i)}" for i in range(num_sections)]
-    init_data = pd.DataFrame({
-        "POINT": points,
-        "CONDUCTOR SIZE": [None] * num_sections,
-        "DISTANCE (KM)": [0.0] * num_sections,
-        "SECTION WISE LOAD (kVA)": [0.0] * num_sections
-    })
+# Grid Layout for Editor and Sketch
+col_ed, col_sk = st.columns([3, 1])
 
+with col_ed:
     edited_df = st.data_editor(
         init_data,
         column_config={
+            "POINT": st.column_config.TextColumn("POINT", disabled=True),
             "CONDUCTOR SIZE": st.column_config.SelectboxColumn("CONDUCTOR", options=list(VD_FACTORS.keys()), required=True),
             "DISTANCE (KM)": st.column_config.NumberColumn(format="%.3f"),
             "SECTION WISE LOAD (kVA)": st.column_config.NumberColumn(format="%.1f")
@@ -72,85 +77,111 @@ with col_main:
         use_container_width=True, num_rows="dynamic"
     )
 
-    # --- CALCULATION LOGIC ---
-    df = edited_df.copy()
-    section_loads = df["SECTION WISE LOAD (kVA)"].tolist()
-    upto_loads = [0] * len(section_loads)
-    
-    running_total = 0
-    for i in range(len(section_loads) - 1, -1, -1):
-        running_total += section_loads[i]
-        upto_loads[i] = running_total
-        
-    df["UPTO LOAD (kVA)"] = upto_loads
-    df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS)
-    df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
+with col_sk:
+    st.markdown("**Feeder Flow**")
+    sketch = ["⚡ S/Stn"]
+    for p in edited_df["POINT"]:
+        sketch.append("  ↓")
+        sketch.append(f"[{p}]")
+    sketch.append("  🔚 End")
+    st.code("\n".join(sketch))
 
-    total_vd_v = df["VD (VOLTS)"].sum()
-    
-    # Demand Factor Logic: MDI kVA / Section A-B Upto Load
-    total_kw_kva = upto_loads[0] if len(upto_loads) > 0 else 1
-    demand_factor = mdi_kva / total_kw_kva if total_kw_kva > 0 else 0
-    
-    actual_vd = total_vd_v * demand_factor
-    # Formula: %VD = (Actual VD / (11000 - Actual VD)) * 100
-    denom = (11000 - actual_vd)
-    vd_percent = (actual_vd / denom * 100) if denom > 0 else 0
+# --- CALCULATION CORE ---
+df = edited_df.copy()
+# Tail-to-Source Cumulative Load
+sec_loads = df["SECTION WISE LOAD (kVA)"].fillna(0).tolist()
+upto_loads = [0] * len(sec_loads)
+running_total = 0
+for i in range(len(sec_loads) - 1, -1, -1):
+    running_total += sec_loads[i]
+    upto_loads[i] = running_total
 
-with col_formula:
-    st.subheader("🔹 Formulas Applied")
+df["UPTO LOAD (kVA)"] = upto_loads
+df["VD FACTOR"] = df["CONDUCTOR SIZE"].map(VD_FACTORS).fillna(0)
+df["VD (VOLTS)"] = df["DISTANCE (KM)"] * df["UPTO LOAD (kVA)"] * df["VD FACTOR"]
+
+# Final Math
+total_vd_v = df["VD (VOLTS)"].sum()
+# Demand Factor = (sqrt(3)*11*MDI) / Total Load at A-B
+total_kw_at_source = upto_loads[0] if len(upto_loads) > 0 else 0
+demand_factor = mdi_kva_calc / total_kw_at_source if total_kw_at_source > 0 else 0
+
+actual_vd = total_vd_v * demand_factor
+vd_denominator = (11000 - actual_vd)
+vd_percent = (actual_vd / vd_denominator * 100) if vd_denominator > 0 else 0
+
+# --- BOTTOM SUMMARY SECTION ---
+st.divider()
+st.subheader("📊 Step 2: Calculation Results & Formulas")
+
+# Display Result Table first
+st.dataframe(df.style.format({"DISTANCE (KM)": "{:.3f}", "UPTO LOAD (kVA)": "{:.1f}", "VD (VOLTS)": "{:.4f}"}), use_container_width=True)
+
+# Formulas Section at the Bottom
+f_col1, f_col2, f_col3 = st.columns(3)
+
+with f_col1:
     st.markdown(f"""
     <div class="formula-card">
         <b>1. Demand Factor (D.F.)</b><br>
-        $$\\text{{D.F.}} = \\frac{{\\sqrt{{3}} \\times 11 \\times \\text{{MDI (Amps)}}}}{{\\text{{Section A-B Upto Load}}}}$$
-        <small>Result: {demand_factor:.4f}</small>
-    </div>
-    <div class="formula-card">
-        <b>2. Actual Voltage Drop</b><br>
-        $$\\text{{Actual V.D.}} = \\text{{Total V.D.}} \\times \\text{{D.F.}}$$
-        <small>Result: {actual_vd:.2f} Volts</small>
-    </div>
-    <div class="formula-card">
-        <b>3. Percentage Voltage Drop</b><br>
-        $$\\% \\text{{V.D.}} = \\frac{{\\text{{Actual V.D.}}}}{{11000 - \\text{{Actual V.D.}}}} \\times 100$$
-        <small>Final Result: <b>{vd_percent:.3f}%</b></small>
+        $$\\text{{D.F.}} = \\frac{{\\sqrt{{3}} \\times 11 \\times {mdi_amps}}}{{{total_kw_at_source}}}$$
+        <div class="result-badge" style="background:#e0f2fe; color:#0369a1;">Result: {demand_factor:.4f}</div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- RESULTS TABLE ---
-st.divider()
-st.subheader("📊 Final Calculation Table")
-st.dataframe(df, use_container_width=True)
+with f_col2:
+    st.markdown(f"""
+    <div class="formula-card">
+        <b>2. Actual Voltage Drop</b><br>
+        $$\\text{{Actual V.D.}} = {total_vd_v:.2f} \\times {demand_factor:.4f}$$
+        <div class="result-badge" style="background:#fef3c7; color:#92400e;">Result: {actual_vd:.2f} V</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# --- EXPORT LOGIC ---
+with f_col3:
+    status_bg = "#dcfce7" if vd_percent < 9 else "#fee2e2"
+    status_text = "#166534" if vd_percent < 9 else "#991b1b"
+    st.markdown(f"""
+    <div class="formula-card">
+        <b>3. Percentage Voltage Drop</b><br>
+        $$\\% \\text{{V.D.}} = \\frac{{{actual_vd:.2f}}}{{11000 - {actual_vd:.2f}}} \\times 100$$
+        <div class="result-badge" style="background:{status_bg}; color:{status_text};">Final: {vd_percent:.3f}%</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# --- EXPORT TO CSV ---
 def convert_to_csv():
     output = io.StringIO()
-    output.write(f"VOLTAGE DROP CALCULATION REPORT - {feeder_name.upper()}\n")
-    output.write(f"SUB DIVISION: {sub_division.upper()}, DIVISION: {division.upper()}\n\n")
-    output.write("POINT,CONDUCTOR SIZE,DISTANCE (KM),SECTION LOAD (kVA),UPTO LOAD (kVA),VD FACTOR,TOTAL VD (VOLTS)\n")
+    output.write(f"VOLTAGE DROP CALCULATION OF {feeder_name.upper()} FEEDER UNDER {sub_division.upper()} SUB DIVISION\n")
+    output.write("POINT,CONDUCTOR SIZE,DISTANCE (IN KM),SECTION WISE LOAD (kVA),UPTO LOAD (kVA),VD FACTOR,TOTAL VOLTAGE DROP (IN VOLTS)\n")
+    output.write("A,B,C,D,E,F,G= (CxExF)\n")
     for _, r in df.iterrows():
         output.write(f"{r['POINT']},{r['CONDUCTOR SIZE']},{r['DISTANCE (KM)']},{r['SECTION WISE LOAD (kVA)']},{r['UPTO LOAD (kVA)']},{r['VD FACTOR']},{r['VD (VOLTS)']}\n")
-    
-    output.write(f"\nMAX DEMAND (MDI Amps),{mdi_amps}\n")
-    output.write(f"TOTAL VD (VOLTS),{total_vd_v:.4f}\n")
-    output.write(f"DEMAND FACTOR,{demand_factor:.4f}\n")
-    output.write(f"ACTUAL VD (VOLTS),{actual_vd:.4f}\n")
-    output.write(f"PERCENTAGE VD (%),{vd_percent:.4f}%\n")
-    output.write(f"\n\nSDO {sub_division.upper()}\nStamp & Sign\n")
+    output.write(f"\n,,,,,,TOTAL VD (VOLTS): {total_vd_v:.4f}\n")
+    output.write(f",,,,,,DEMAND FACTOR: {demand_factor:.4f}\n")
+    output.write(f",,,,,,ACTUAL VD (VOLTS): {actual_vd:.4f}\n")
+    output.write(f",,,,,,PERCENTAGE VD (%): {vd_percent:.4f}%\n")
+    output.write(f"\n\n,,,,,,SDO {sub_division.upper()}\n")
+    output.write(",,,,,,Stamp & Sign\n")
     return output.getvalue()
 
-st.download_button("📥 Download Official CSV Report", convert_to_csv(), f"VD_Report_{feeder_name}.csv", "text/csv")
+st.download_button(
+    label="📥 Download Official PSPCL Report (CSV)",
+    data=convert_to_csv(),
+    file_name=f"VD_Report_{feeder_name}.csv",
+    mime="text/csv",
+)
 
 # --- FOOTER ---
 st.markdown(f"""
 <div class="footer-container">
-    <p>Made with ❤️ by <b>Anuj Narang</b></p>
+    <p style="font-size:1.1em;">Made with ❤️ by <b>Anuj Narang</b></p>
     <div>
-        <a href="https://instagram.com/iamanujnarang"><img src="{INSTA_ICON}" class="social-logo"></a>
-        <a href="https://facebook.com/iamanujnarang"><img src="{FB_ICON}" class="social-logo"></a>
-        <a href="https://x.com/iamanujnarang"><img src="{X_ICON}" class="social-logo"></a>
-        <a href="https://linkedin.com/in/iamanujnarang"><img src="{LINKEDIN_ICON}" class="social-logo"></a>
+        <a href="https://instagram.com/iamanujnarang" target="_blank"><img src="{INSTA_ICON}" class="social-logo"></a>
+        <a href="https://facebook.com/iamanujnarang" target="_blank"><img src="{FB_ICON}" class="social-logo"></a>
+        <a href="https://x.com/iamanujnarang" target="_blank"><img src="{X_ICON}" class="social-logo"></a>
+        <a href="https://linkedin.com/in/iamanujnarang" target="_blank"><img src="{LINKEDIN_ICON}" class="social-logo"></a>
     </div>
-    <p style="margin-top:10px; font-size: 0.9em;">Powered by <a href="https://beeclue.com" target="_blank">Beeclue Tech</a></p>
+    <p style="margin-top:20px; color:#888;">Powered by <a href="https://beeclue.com" target="_blank" style="color:#004a99; text-decoration:none;"><b>Beeclue Tech</b></a></p>
 </div>
 """, unsafe_allow_html=True)
