@@ -155,15 +155,65 @@ else:
     st.warning("Please fill the data and click 'Calculate Voltage Drop' to see the results.")
 
 # --- FOOTER ---
+# --- UPDATED STYLING WITH HOVER EFFECTS ---
+st.markdown(f"""
+<style>
+    .header-box {{ 
+        text-align: center; 
+        padding: 25px; 
+        background: white; 
+        border-radius: 15px; 
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1); 
+        margin-bottom: 25px; 
+        border-top: 6px solid #ffcc00; 
+    }}
+    .formula-section {{ 
+        background: #ffffff; 
+        padding: 30px; 
+        border-radius: 15px; 
+        border: 1px solid #dee2e6; 
+        margin-top: 30px; 
+        box-shadow: 0 10px 25px rgba(0,0,0,0.05); 
+    }}
+    .footer-container {{ 
+        text-align: center; 
+        margin-top: 60px; 
+        padding: 40px; 
+        border-top: 1px solid #eee; 
+        background: #fdfdfd;
+    }}
+    /* --- HOVER ANIMATION LOGIC --- */
+    .social-logo {{ 
+        width: 35px; 
+        margin: 0 15px; 
+        transition: transform 0.3s ease-in-out, filter 0.3s ease-in-out; 
+        cursor: pointer;
+    }}
+    .social-logo:hover {{ 
+        transform: scale(1.3); /* Icon bada ho jayega */
+        filter: brightness(1.2); /* Thoda shine karega */
+    }}
+    .stMetric {{ 
+        background: #f8f9fa; 
+        padding: 15px; 
+        border-radius: 10px; 
+        border: 1px solid #eee; 
+    }}
+</style>
+""", unsafe_allow_html=True)
+
+# --- (Rest of your app code remains the same) ---
+
+# --- UPDATED FOOTER ---
 st.markdown(f"""
 <div class="footer-container">
-    <p style="font-size:1.2em; font-weight:bold;">Made with ❤️ by Anuj Narang</p>
-    <div style="margin: 20px 0;">
-        <a href="https://instagram.com/iamanujnarang"><img src="{INSTA_ICON}" class="social-logo"></a>
-        <a href="https://facebook.com/iamanujnarang"><img src="{FB_ICON}" class="social-logo"></a>
-        <a href="https://x.com/iamanujnarang"><img src="{X_ICON}" class="social-logo"></a>
-        <a href="https://linkedin.com/in/iamanujnarang"><img src="{LINKEDIN_ICON}" class="social-logo"></a>
+    <p style="font-size:1.2em; font-weight:bold; color:#333;">Made with ❤️ by Anuj Narang</p>
+    <div style="margin: 25px 0;">
+        <a href="https://instagram.com/iamanujnarang" target="_blank"><img src="{INSTA_ICON}" class="social-logo" title="Instagram"></a>
+        <a href="https://facebook.com/iamanujnarang" target="_blank"><img src="{FB_ICON}" class="social-logo" title="Facebook"></a>
+        <a href="https://x.com/iamanujnarang" target="_blank"><img src="{X_ICON}" class="social-logo" title="X (Twitter)"></a>
+        <a href="https://linkedin.com/in/iamanujnarang" target="_blank"><img src="{LINKEDIN_ICON}" class="social-logo" title="LinkedIn"></a>
     </div>
-    <p>Powered by <a href="https://beeclue.com" style="color:#004a99; text-decoration:none; font-weight:bold;">Beeclue Tech</a></p>
+    <p style="color:#666;">Powered by <a href="https://beeclue.com" target="_blank" style="color:#004a99; text-decoration:none; font-weight:bold;">Beeclue Tech</a></p>
 </div>
 """, unsafe_allow_html=True)
