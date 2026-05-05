@@ -486,17 +486,22 @@ with st.expander("📚 Help & Information"):
 # --- FOOTER ---
 st.markdown(f"""
 <div class="footer-container">
-    <p style="font-size: 1.3em; font-weight: bold; margin-bottom: 20px;">Made with ❤️ by Anuj Narang</p>
-    <div style="margin-bottom: 30px;">
-        <a href="https://instagram.com/iamanujnarang"><img src="{INSTA_ICON}" class="social-logo" alt="Instagram"></a>
-        <a href="https://facebook.com/iamanujnarang"><img src="{FB_ICON}" class="social-logo" alt="Facebook"></a>
-        <a href="https://x.com/iamanujnarang"><img src="{X_LOGO_FINAL}" class="social-logo" alt="X"></a>
-        <a href="https://linkedin.com/in/iamanujnarang"><img src="{LINKEDIN_ICON}" class="social-logo" alt="LinkedIn"></a>
-    </div>
-    <p style="color: #888; font-size: 0.9em;">Strategic Technology Partner</p>
-    <a href="https://beeclue.com">
-        <img src="{BEECLUE_LOGO}" class="beeclue-footer-logo" alt="Beeclue">
+<div class="made-with-love">Made with <span class="heart-symbol">❤️</span> by <b>Er. Anuj Narang, JE PSPCL</b></div>
+<div style="margin-bottom: 25px;">
+<a href="https://instagram.com/iamanujnarang" target="_blank"><img src="{INSTA_ICON}" class="social-icon"></a>
+<a href="https://facebook.com/iamanujnarang" target="_blank"><img src="{FB_ICON}" class="social-icon"></a>
+<a href="https://x.com/iamanujnarang" target="_blank"><img src="{X_ICON}" class="social-icon"></a>
+<a href="https://linkedin.com/in/iamanujnarang" target="_blank"><img src="{LINKEDIN_ICON}" class="social-icon"></a>
+</div>
+
+<!-- Beeclue without box -->
+<div style="margin-top: 25px;">
+    <div class="powered-text">In Strategic Collaboration with</div>
+    <a href="https://beeclue.com" target="_blank">
+        <img src="{BEECLUE_LOGO}" class="beeclue-img">
     </a>
-    <p style="color: #999; font-size: 0.85em; margin-top: 15px;">© 2026 PSPCL VD Calculator. All rights reserved.</p>
+</div>
+
+<div style="color: #94a3b8; font-size: 0.85rem; margin-top: 25px;">© 2026 | PSPCL Guidelines</div>
 </div>
 """, unsafe_allow_html=True)
