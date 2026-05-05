@@ -13,7 +13,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 st.set_page_config(page_title="PSPCL VD Calculator Pro", page_icon="⚡", layout="wide")
 
 # --- CONSTANTS & ASSETS ---
-PSPCL_LOGO = "https://upload.wikimedia.org/wikipedia/en/3/3a/Punjab_State_Power_Corporation_Limited_logo.png"
+PSPCL_LOGO = "https://pspcl.in/assets/images/logo.png"
 INSTA_ICON = "https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon.png"
 FB_ICON = "https://upload.wikimedia.org/wikipedia/commons/1/1b/Facebook_icon.svg"
 X_LOGO_FINAL = "https://upload.wikimedia.org/wikipedia/commons/b/b7/X_logo.jpg"
