@@ -484,7 +484,7 @@ with st.expander("📚 Help & Information"):
     """)
 
 # --- FOOTER ---
-st.markdown(f"""
+footer_html = f"""
 <div class="footer-container">
 <div class="made-with-love">Made with <span class="heart-symbol">❤️</span> by <b>Er. Anuj Narang, JE PSPCL</b></div>
 <div style="margin-bottom: 25px;">
@@ -504,4 +504,5 @@ st.markdown(f"""
 
 <div style="color: #94a3b8; font-size: 0.85rem; margin-top: 25px;">© 2026 | PSPCL Guidelines</div>
 </div>
-""", unsafe_allow_html=True)
+"""
+st.markdown(footer_html, unsafe_allow_html=True)
