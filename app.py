@@ -18,7 +18,7 @@ INSTA_ICON = "https://upload.wikimedia.org/wikipedia/commons/a/a5/Instagram_icon
 FB_ICON = "https://upload.wikimedia.org/wikipedia/commons/1/1b/Facebook_icon.svg"
 X_LOGO_FINAL = "https://upload.wikimedia.org/wikipedia/commons/b/b7/X_logo.jpg"
 LINKEDIN_ICON = "https://upload.wikimedia.org/wikipedia/commons/c/ca/LinkedIn_logo_initials.png"
-BEECLUE_LOGO = "https://beeclue.com/wp-content/uploads/2023/04/Beeclue-Logo-New.png"
+BEECLUE_LOGO = "https://raw.githubusercontent.com/iamanujnarang/LDHF/e5748e037b76a52a47d610a88c3a3c70f72f1c9a/BEECLUE.png"
 
 VD_FACTORS = {
     "ACSR 100 SQMM": 0.0415, "ACSR 80 SQMM": 0.0512, "ACSR 50 SQMM": 0.0910,
@@ -47,7 +47,7 @@ st.markdown(f"""
 <div class="header-box">
     <img src="{PSPCL_LOGO}" class="pspcl-main-logo">
     <h1 style="color: #1a237e; margin: 0;">PUNJAB STATE POWER CORPORATION LIMITED</h1>
-    <h2 style="color: #444; margin: 5px;">11kV Voltage Drop Calculator Pro</h2>
+    <h2 style="color: #444; margin: 5px;">11kV Voltage Drop Calculator</h2>
     <p style="color: #666; margin: 5px;">Advanced Analysis & Reporting System</p>
 </div>
 """, unsafe_allow_html=True)
